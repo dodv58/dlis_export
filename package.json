@@ -1,0 +1,22 @@
+{
+  "name": "dlis_export",
+  "version": "1.0.0",
+  "description": "dlis export",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dodv58/dlis_export.git"
+  },
+  "author": "Do Dang",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/dodv58/dlis_export/issues"
+  },
+  "homepage": "https://github.com/dodv58/dlis_export#readme",
+  "dependencies": {
+    "dlis_parser": "file:../dlis_log"
+  }
+}
