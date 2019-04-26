@@ -2,6 +2,8 @@ const fs = require('fs');
 const encoder = require('./Encoder.js');
 const REP_CODE = encoder.REP_CODE;
 const TEMPLATE = require("./Template.js");
+const readline = require("readline");
+const s3 = require("./S3.js");
 
 const COMPONENT_ROLE = {
     ABSATR: 0,
@@ -13,6 +15,8 @@ const COMPONENT_ROLE = {
     SET: 7
     };
 const VR_MAX_LEN = 8192;
+const BUFF_SIZE = 10000;
+const FILE_PATH = "./tmp.dlis"
 const EFLR = {
     "FILE-HEADER": 0,
     "ORIGIN": 1,
@@ -20,15 +24,15 @@ const EFLR = {
     "FRAME": 4
 }
 
-function dlisExport(wells){
+async function dlisExport(wells){
     const buffer = {
         buffs: [],
         writeIdx: 0,
         bufferIdx: 0,
         writableIdx: -1,
-        buffSize: 10000,
-        buffCount: 5,
-        wstream: fs.createWriteStream("tmp.dlis")
+        buffSize: BUFF_SIZE,
+        buffCount: 4
+        //wstream: fs.createWriteStream("tmp.dlis")
     }
     for(let i = 0; i < buffer.buffCount; i++){
         buffer.buffs.push(Buffer.alloc(buffer.buffSize, 0));
@@ -48,7 +52,7 @@ function dlisExport(wells){
 
     const cTime = new Date();
     const cTimeObj = {y:cTime.getUTCFullYear(), tz:2, m:cTime.getUTCMonth() + 1, d:cTime.getUTCDate(), h:cTime.getUTCHours(), mn:cTime.getUTCMinutes(), s:cTime.getUTCSeconds(), ms:cTime.getUTCMilliseconds()};
-
+    
     for(const well of wells){
         //write FHLR
         let origin = 0;
@@ -79,7 +83,15 @@ function dlisExport(wells){
         const frames = []
         for(const dataset of well.datasets){
             origin += 1;
+            dataset.origin = origin;
             const curves = [];
+            curves.push({
+                origin: origin,
+                copy_number: 0,
+                name: "TDEP",
+                attribs: [[], [], [REP_CODE.FDOUBL], [dataset.unit], 
+                    [], [], [], []]
+            })
             for(const curve of dataset.curves){
                 curves.push({
                     origin: origin,
@@ -94,7 +106,7 @@ function dlisExport(wells){
                 origin: origin,
                 copy_number: 0,
                 name: dataset.name,
-                attribs: [[], curves, [], [], [], [], [], []]
+                attribs: [[], curves, ["BOREHOLE-DEPTH"], ["INCREASING"], [dataset.step != 0? parseFloat(dataset.step) : null], [], [parseFloat(dataset.top)], [parseFloat(dataset.bottom)]]
             })
         }
         //write channel
@@ -112,24 +124,124 @@ function dlisExport(wells){
             objects: frames
         }
         encodeSet(frameSet); 
+
+        //write data
+        let data = [];
+        async function encodeDatasetData(dataset){
+            return new Promise(function(resolve, reject) {
+                let closedStream = dataset.curves.length;
+                data.length = 0;
+                let channelIdx = 0;
+                let frameIdx = 1;
+                for(const [i, curve] of dataset.curves.entries()){
+                    data.push([]);
+                    if(i != 0){
+                        const rl = readline.createInterface({
+                            //input: await s3.getData(curve.key)
+                            input: fs.createReadStream("./data.txt")
+                        });
+                        rl.on("line", function(line) {
+                            const _data = line.split(" ")[1];
+                            data[i].push(_data);
+                            if(channelIdx == 0){
+                                //start a frame
+                                encodeIflrHeader({origin: dataset.origin, copy_number: 0, name: dataset.name }, frameIdx);
+                                data[0][0] = parseFloat(dataset.top) + frameIdx*dataset.step;
+                            }
+                            while(data[channelIdx][0]){
+                                encodeIflrData(curve.type == "TEXT"?REP_CODE.ASCII : REP_CODE.FDOUBL, data[channelIdx].shift());
+                                if(channelIdx == dataset.curves.length - 1){
+                                    //end of frame
+                                    writeLRSHeader(0b00000000, 0b00000000); //lrs length
+                                    vrLen += lrsLen;
+                                    writeVRLen(); 
+                                    channelIdx = 0;
+                                    frameIdx += 1;
+                                    console.log(buffer.buffs[buffer.bufferIdx].slice(vrStartIdx, vrStartIdx + 8))
+                                }
+                                else {
+                                    channelIdx += 1;
+                                }
+                            }
+
+                        });
+                        rl.on("close", () => {
+                            closedStream -= 1;
+                            if(closedStream == 0) {
+                                resolve();
+                            }
+                        })
+                    }
+                }
+
+            })
+        }
+
+        for(const dataset of well.datasets){
+            await encodeDatasetData(dataset);
+        }
     }
-     
-    //write to file
+    //write what's left in buffer to file
     if(buffer.writableIdx == -1){
         for(let i = 0; i < buffer.bufferIdx; i++){
-            buffer.wstream.write(buffer.buffs[i]);
+            //buffer.wstream.write(buffer.buffs[i]);
+            fs.appendFileSync(FILE_PATH, buffer.buffs[i]);
         }
     }
     else {
         if(buffer.bufferIdx == 0){
-            buffer.wstream.write(buffer.buffs[buffer.buffCount - 1]);
+            //buffer.wstream.write(buffer.buffs[buffer.buffCount - 1]);
+            fs.appendFileSync(FILE_PATH, buffer.buffs[buffer.buffCount -1]);
         } else {
-            buffer.wstream.write(buffer.buffs[buffer.bufferIdx - 1]);
+            fs.appendFileSync(FILE_PATH, buffer.buffs[buffer.bufferIdx -1]);
+            //buffer.wstream.write(buffer.buffs[buffer.bufferIdx - 1]);
         }
     }
     const lastBuff = Buffer.alloc(buffer.writeIdx, 0);
     buffer.buffs[buffer.bufferIdx].copy(lastBuff, 0, 0, buffer.writeIdx);
-    buffer.wstream.write(lastBuff);
+    //buffer.wstream.write(lastBuff);
+    fs.appendFileSync(FILE_PATH, lastBuff);
+
+    function encodeIflrHeader(obname, frameIdx){
+        console.log("====== encodeIflrHeader "+frameIdx +" ======= " + buffer.writeIdx);
+        vrStartIdx = buffer.writeIdx;
+        writeToBuffer([0x00, 0x00, 0xFF, 0x01]); //vr header
+        vrLen = 4;
+        lrsStartIdx = buffer.writeIdx;
+        writeToBuffer([0x00, 0x00, 0x00, 0x00]); //lrs header
+        lrsLen = 4;
+        console.log("===========> "+ buffer.writeIdx);
+        let bytes = 0;
+        bytes = encoder.encode(buffer, REP_CODE.OBNAME, obname);
+        //update state
+        if(buffer.writeIdx + bytes < buffer.buffSize){
+            buffer.writeIdx += bytes;
+        }
+        else {
+            changeBuffer(bytes);
+        }
+        lrsLen += bytes;
+        bytes = encoder.encode(buffer, REP_CODE.UVARI, frameIdx);
+        //update state
+        if(buffer.writeIdx + bytes < buffer.buffSize){
+            buffer.writeIdx += bytes;
+        }
+        else {
+            changeBuffer(bytes);
+        }
+        lrsLen += bytes;
+    }
+    function encodeIflrData(repcode, data){
+        const bytes = encoder.encode(buffer, repcode, data);
+        //update state
+        if(buffer.writeIdx + bytes < buffer.buffSize){
+            buffer.writeIdx += bytes;
+        }
+        else {
+            changeBuffer(bytes);
+        }
+        lrsLen += bytes;
+    }
 
     function encodeSet(set) {
         vrStartIdx = buffer.writeIdx;
@@ -144,11 +256,20 @@ function dlisExport(wells){
             lrsLen += encodeComponent(COMPONENT_ROLE.SET, 0b10000, set.type);
         }
         //encode template
-        for(const item of set.template){
+        for(const [i, item] of set.template.entries()){
             let format = 0b10000;
+            let repcode = item.repcode;
             if(item.count) format = format | 0b01000;
-            if(item.repcode) format = format | 0b00100;
-            lrsLen += encodeComponent(COMPONENT_ROLE.ATTRIB, format, item.label, item.count, item.repcode);
+            if(item.repcode) {
+                format = format | 0b00100;
+            }
+            else {
+                //encode repcode of template following data of attributes
+                //if not, default repcode is IDENT
+                format = format | 0b00100;
+                repcode = REP_CODE.FDOUBL; 
+            }
+            lrsLen += encodeComponent(COMPONENT_ROLE.ATTRIB, format, item.label, item.count, repcode);
         }
         //encode objects
         for(const obj of set.objects){
@@ -160,10 +281,18 @@ function dlisExport(wells){
             }
             for(let i = 0; i < obj.attribs.length; i++){
                 if(obj.attribs[i].length == 0){
+                    console.log("--> ABSATR " + lrsLen);
                     lrsLen += encodeComponent(COMPONENT_ROLE.ABSATR);
                 }
                 else{
-                    values.repcode = set.template[i].repcode;
+                    if(set.template[i].repcode){
+                        values.repcode = set.template[i].repcode;
+                    }
+                    else if(typeof obj.attribs[i][0] == "number"){
+                        values.repcode = REP_CODE.FDOUBL;
+                    }else {
+                        values.repcode = REP_CODE.ASCII;
+                    }
                     values.count = set.template.count ? set.template.count : obj.attribs[i].length;
                     values.values = obj.attribs[i];
                     if(values.count > 1){
@@ -174,9 +303,9 @@ function dlisExport(wells){
                 }
             }
         }
+        writeLRSHeader(0b10000000, 0b00000000); //lrs length
         vrLen += lrsLen;
-        writeLRSHeader(lrsLen, 0b10000000, 0b00000000); //lrs length
-        writeVRLen(vrLen); 
+        writeVRLen(); 
     }
     function writeToBuffer(bytes){
         if(bytes.length == 0) return;
@@ -192,48 +321,97 @@ function dlisExport(wells){
             for(let i = 0; i < remainLen; i++){
                 buffer.buffs[buffer.bufferIdx].writeUInt8(bytes[i], buffer.writeIdx + i);
             }
-            changeBuffer();
+            changeBuffer(remainLen);
             writeToBuffer(bytes.slice(remainLen));
         }
     }
-    function changeBuffer(){ //write current buffer to file
+    function changeBuffer(bytes){ //write current buffer to file
+        console.log("changeBuffer writeableIdx " + buffer.writableIdx + " bufferIdx " + buffer.bufferIdx);
         if(buffer.writableIdx == -1 && buffer.bufferIdx == 0){
             //do nothing
         }
         else {
+            if(buffer.writableIdx == -1 && fs.existsSync(FILE_PATH)){
+                fs.unlinkSync(FILE_PATH);
+            }
             buffer.writableIdx = (buffer.writableIdx + 1) % buffer.buffCount;
-            buffer.wstream.write(buffer.buffs[buffer.writableIdx]);
+            //const ret = buffer.wstream.write(buffer.buffs[buffer.writableIdx]);
+            //console.log("changeBuffer write " + ret);
+            fs.appendFileSync(FILE_PATH, buffer.buffs[buffer.writableIdx]);
         }
         buffer.bufferIdx = (buffer.bufferIdx + 1) % buffer.buffCount;
-        buffer.writeIdx = 0;
+        buffer.writeIdx = buffer.writeIdx + bytes - buffer.buffSize;
     }
-    function encodeComponent(role, format, args1, args2, args3, args4, args5){
+    function encodeComponent(role, format, args1, args2, args3, args4, args5){ //return -1 if 
+        console.log("encodeComponent " + buffer.writeIdx + " header " + (role << 5 | format));
+        const sBufferIdx = buffer.bufferIdx;
+        const sWriteIdx = buffer.writeIdx; 
         writeToBuffer([role << 5 | format]); //write component header
         let len = 1;
+        let bytes = 0;
+        function updateState(bytes){
+            if(bytes == -1){
+                buffer.bufferIdx = sBufferIdx;
+                buffer.writeIdx = sWriteIdx;
+            }
+            else {
+                len += bytes;
+                if(buffer.writeIdx + bytes < buffer.buffSize){
+                    buffer.writeIdx += bytes;
+                }
+                else {
+                    changeBuffer(bytes);
+                }
+            }
+        }
         switch (role){
             case COMPONENT_ROLE.ABSATR:
                 break;
             case COMPONENT_ROLE.ATTRIB:
             case COMPONENT_ROLE.INVATR:
-                if(args1) len += encoder.encode(buffer, REP_CODE.IDENT, args1); // label
-                if(args2) len += encoder.encode(buffer, REP_CODE.UVARI, args2); // count
-                if(args3) len += encoder.encode(buffer, REP_CODE.USHORT, args3); // representation code
-                if(args4) len += encoder.encode(buffer, REP_CODE.IDENT, args4); // units
+                if(args1) {
+                    bytes = encoder.encode(buffer, REP_CODE.IDENT, args1); // label
+                    updateState(bytes);
+                    if(bytes == -1) return -1;
+                }
+                if(args2) {
+                    bytes = encoder.encode(buffer, REP_CODE.UVARI, args2); // count
+                    updateState(bytes);
+                    if(bytes == -1) return -1;
+                }
+                if(args3) {
+                    bytes = encoder.encode(buffer, REP_CODE.USHORT, args3); // representation code
+                    updateState(bytes);
+                    if(bytes == -1) return -1;
+                }
+                if(args4) {
+                    bytes = encoder.encode(buffer, REP_CODE.IDENT, args4); // units
+                    updateState(bytes);
+                    if(bytes == -1) return -1;
+                }
                 if(args5) {
                     for(const val of args5.values){
-                        len += encoder.encode(buffer, args5.repcode, val);
+                        bytes = encoder.encode(buffer, args5.repcode, val);
+                        updateState(bytes);
+                        if(bytes == -1) return -1;
                     }
                 }
                 break;
             case COMPONENT_ROLE.OBJECT:
-                len += encoder.encode(buffer, REP_CODE.OBNAME, args1); //args1 == obname 
+                bytes = encoder.encode(buffer, REP_CODE.OBNAME, args1); //args1 == obname 
+                updateState(bytes);
+                if(bytes == -1) return -1;
                 break;
             case COMPONENT_ROLE.RDSET:
             case COMPONENT_ROLE.RSET:
             case COMPONENT_ROLE.SET:
-                len += encoder.encode(buffer, REP_CODE.IDENT, args1); // args1 == Type
+                bytes = encoder.encode(buffer, REP_CODE.IDENT, args1); // args1 == Type
+                updateState(bytes);
+                if(bytes == -1) return -1;
                 if(args2) {
-                    len += encoder.encode(buffer, REP_CODE.IDENT, args2); // args2 == name
+                    bytes = encoder.encode(buffer, REP_CODE.IDENT, args2); // args2 == name
+                    updateState(bytes);
+                    if(bytes == -1) return -1;
                 }
                 break;
             default:
@@ -241,24 +419,33 @@ function dlisExport(wells){
         }
         return len;
     }
-    function writeVRLen(len){
-        console.log("writeVRLen " + len);
+
+    function writeVRLen(){
         let bufferIdx = buffer.bufferIdx;
         if(vrStartIdx > buffer.writeIdx){
             bufferIdx = buffer.bufferIdx == 0 ? buffer.buffCount - 1 : buffer.bufferIdx - 1;
         }
+        console.log("writeVRLen bufferIdx "+ bufferIdx + " writeIdx " + vrStartIdx +" len "  + vrLen);
+        console.log(buffer.buffs[bufferIdx].slice(vrStartIdx, vrStartIdx + 10));
         if(buffer.buffSize - vrStartIdx < 2){
             const buff = Buffer.alloc(2, 0);
-            buff.writeUInt16BE(len);
-            buff.copy(buffer.buffs[buffferIdx], vrStartIdx, 0, 1);
-            buff.copy(buffer.buffs[(buffferIdx + 1) % buffer.buffCount], 0, 1, 2);
+            buff.writeUInt16BE(vrLen);
+            buff.copy(buffer.buffs[bufferIdx], vrStartIdx, 0, 1);
+            buff.copy(buffer.buffs[(bufferIdx + 1) % buffer.buffCount], 0, 1, 2);
         }
         else {
-            buffer.buffs[bufferIdx].writeUInt16BE(len, vrStartIdx);
+            buffer.buffs[bufferIdx].writeUInt16BE(vrLen, vrStartIdx);
         }
+        console.log(buffer.buffs[bufferIdx].slice(vrStartIdx, vrStartIdx + 10));
     }
-    function writeLRSHeader(len, attributes, type){
-        console.log("writeLRSHeader " + len);
+    function writeLRSHeader(attributes, type){
+        console.log("writeLRSHeader lrsStartIdx " +lrsStartIdx + " writeIdx " + buffer.writeIdx + " len "+ lrsLen);
+        if(lrsLen % 2 == 1){
+            attributes = attributes | 0b00000001;//pad bytes are presented 
+            writeToBuffer([0x01]); //pad count
+            lrsLen += 1;
+        }
+        console.log("LRS len: "+lrsLen);
         let bufferIdx = buffer.bufferIdx;
         if(lrsStartIdx > buffer.writeIdx){
             bufferIdx = buffer.bufferIdx == 0 ? buffer.buffCount - 1 : buffer.bufferIdx - 1;
@@ -266,12 +453,12 @@ function dlisExport(wells){
         //write lrs length
         if(buffer.buffSize - lrsStartIdx < 2){
             const buff = Buffer.alloc(2, 0);
-            buff.writeUInt16BE(len);
-            buff.copy(buffer.buffs[buffferIdx], lrsStartIdx, 0, 1);
-            buff.copy(buffer.buffs[(buffferIdx + 1) % buffer.buffCount], 0, 1, 2);
+            buff.writeUInt16BE(lrsLen);
+            buff.copy(buffer.buffs[bufferIdx], lrsStartIdx, 0, 1);
+            buff.copy(buffer.buffs[(bufferIdx + 1) % buffer.buffCount], 0, 1, 2);
         }
         else {
-            buffer.buffs[bufferIdx].writeUInt16BE(len, lrsStartIdx);
+            buffer.buffs[bufferIdx].writeUInt16BE(lrsLen, lrsStartIdx);
         }
         //write lrs attributes
         if(lrsStartIdx + 2 < buffer.buffSize){
@@ -292,485 +479,7 @@ function dlisExport(wells){
     }
 }
 
-dlisExport([{
-"idWell":2629,
-"name":"1_FT_L2",
-"filename":"1_FT_L2_LQC.las",
-"notes":null,
-"createdAt":"2019-04-01T09:23:48.000Z",
-"updatedAt":"2019-04-01T09:23:48.000Z",
-"username":"dodv",
-"well_headers":[
-{
-"header":"API",
-"value":"",
-"unit":"",
-"description":""
-},
-{
-"header":"AREA",
-"value":"",
-"unit":"",
-"description":""
+module.exports = {
+    export: dlisExport
 }
-],
-"datasets": [{
-"idDataset":12008,
-"name":"LQC",
-"numberOfSample":0,
-"unit":"ft",
-"top":"0.0",
-"bottom":"13557.5",
-"step":"0.5000",
-"createdAt":"2019-04-01T09:23:48.000Z",
-"updatedAt":"2019-04-01T09:23:48.000Z",
-"idWell":2629,
-"dataset_params":[
-{
-"idDataset":12008,
-"mnem":"PROJECT_UPGRADE_TIME",
-"value":"2017-09-12T18_03_55",
-"unit":"",
-"description":"",
-"createdAt":"2019-04-01T09:23:48.000Z",
-"updatedAt":"2019-04-01T09:23:48.000Z"
-},
-{
-"idDataset":12008,
-"mnem":"TLFamily_CALI",
-"value":"Caliper",
-"unit":"",
-"description":"",
-"createdAt":"2019-04-01T09:23:48.000Z",
-"updatedAt":"2019-04-01T09:23:48.000Z"
-}
-],
-"curves": [
-{
-"idCurve":152436,
-"name":"CALI",
-"description":"density caliper [5]",
-"dimension":1,
-"delimiter":" ",
-"type":"NUMBER",
-"createdAt":"2019-04-01T09:23:48.000Z",
-"updatedAt":"2019-04-01T09:23:48.000Z",
-"idDataset":12008,
-"idRevision":151096,
-"unit":"in",
-"startDepth":"0.0",
-"stopDepth":"13557.5",
-"step":"0.5000",
-"isCurrentRevision":1
-},
-{
-"idCurve":152437,
-"name":"DEN",
-"description":"bulk density [13]",
-"dimension":1,
-"delimiter":" ",
-"type":"NUMBER",
-"createdAt":"2019-04-01T09:23:48.000Z",
-"updatedAt":"2019-04-01T09:23:48.000Z",
-"idDataset":12008,
-"idRevision":151097,
-"unit":"g/cm3",
-"startDepth":"0.0",
-"stopDepth":"13557.5",
-"step":"0.5000",
-"isCurrentRevision":1
-},
-{
-"idCurve":152438,
-"name":"DENC",
-"description":"density correction [14]",
-"dimension":1,
-"delimiter":" ",
-"type":"NUMBER",
-"createdAt":"2019-04-01T09:23:48.000Z",
-"updatedAt":"2019-04-01T09:23:48.000Z",
-"idDataset":12008,
-"idRevision":151098,
-"unit":"g/cm3",
-"startDepth":"0.0",
-"stopDepth":"13557.5",
-"step":"0.5000",
-"isCurrentRevision":1
-},
-{
-"idCurve":152439,
-"name":"DT",
-"description":"sonic openhole & 9 5/8 csg [21]",
-"dimension":1,
-"delimiter":" ",
-"type":"NUMBER",
-"createdAt":"2019-04-01T09:23:48.000Z",
-"updatedAt":"2019-04-01T09:23:48.000Z",
-"idDataset":12008,
-"idRevision":151099,
-"unit":"us/ft",
-"startDepth":"0.0",
-"stopDepth":"13557.5",
-"step":"0.5000",
-"isCurrentRevision":1
-},
-{
-"idCurve":152440,
-"name":"DTS_PY",
-"description":"DTS based on VSH and SW",
-"dimension":1,
-"delimiter":" ",
-"type":"NUMBER",
-"createdAt":"2019-04-01T09:23:48.000Z",
-"updatedAt":"2019-04-01T09:23:48.000Z",
-"idDataset":12008,
-"idRevision":151100,
-"unit":"us/ft",
-"startDepth":"0.0",
-"stopDepth":"13557.5",
-"step":"0.5000",
-"isCurrentRevision":1
-},
-{
-"idCurve":152441,
-"name":"FLD",
-"description":"from MDT spreadsheet JAG",
-"dimension":1,
-"delimiter":" ",
-"type":"NUMBER",
-"createdAt":"2019-04-01T09:23:48.000Z",
-"updatedAt":"2019-04-01T09:23:48.000Z",
-"idDataset":12008,
-"idRevision":151101,
-"unit":"unitless",
-"startDepth":"0.0",
-"stopDepth":"13557.5",
-"step":"0.5000",
-"isCurrentRevision":1
-},
-{
-"idCurve":152442,
-"name":"GR",
-"description":"",
-"dimension":1,
-"delimiter":" ",
-"type":"NUMBER",
-"createdAt":"2019-04-01T09:23:48.000Z",
-"updatedAt":"2019-04-01T09:23:48.000Z",
-"idDataset":12008,
-"idRevision":151103,
-"unit":"gAPI",
-"startDepth":"0.0",
-"stopDepth":"13557.5",
-"step":"0.5000",
-"isCurrentRevision":1
-},
-{
-"idCurve":152443,
-"name":"HAFWL",
-"description":"Height above FWL",
-"dimension":1,
-"delimiter":" ",
-"type":"NUMBER",
-"createdAt":"2019-04-01T09:23:48.000Z",
-"updatedAt":"2019-04-01T09:23:48.000Z",
-"idDataset":12008,
-"idRevision":151104,
-"unit":"ft",
-"startDepth":"0.0",
-"stopDepth":"13557.5",
-"step":"0.5000",
-"isCurrentRevision":1
-},
-{
-"idCurve":152444,
-"name":"NET",
-"description":"Net Res Flag - EntOil Bateman method INVS<=0.5",
-"dimension":1,
-"delimiter":" ",
-"type":"NUMBER",
-"createdAt":"2019-04-01T09:23:48.000Z",
-"updatedAt":"2019-04-01T09:23:48.000Z",
-"idDataset":12008,
-"idRevision":151105,
-"unit":"FLAG",
-"startDepth":"0.0",
-"stopDepth":"13557.5",
-"step":"0.5000",
-"isCurrentRevision":1
-},
-{
-"idCurve":152445,
-"name":"NEU",
-"description":"neutron porosity [16]",
-"dimension":1,
-"delimiter":" ",
-"type":"NUMBER",
-"createdAt":"2019-04-01T09:23:48.000Z",
-"updatedAt":"2019-04-01T09:23:48.000Z",
-"idDataset":12008,
-"idRevision":151106,
-"unit":"v/v",
-"startDepth":"0.0",
-"stopDepth":"13557.5",
-"step":"0.5000",
-"isCurrentRevision":1
-},
-{
-"idCurve":152446,
-"name":"PERF",
-"description":"perf shot 13/11/00 - loaded June04",
-"dimension":1,
-"delimiter":" ",
-"type":"NUMBER",
-"createdAt":"2019-04-01T09:23:48.000Z",
-"updatedAt":"2019-04-01T09:23:48.000Z",
-"idDataset":12008,
-"idRevision":151102,
-"unit":"ft",
-"startDepth":"0.0",
-"stopDepth":"13557.5",
-"step":"0.5000",
-"isCurrentRevision":1
-},
-{
-"idCurve":152447,
-"name":"PERM",
-"description":"editted in petrel",
-"dimension":1,
-"delimiter":" ",
-"type":"NUMBER",
-"createdAt":"2019-04-01T09:23:48.000Z",
-"updatedAt":"2019-04-01T09:23:48.000Z",
-"idDataset":12008,
-"idRevision":151107,
-"unit":"ft",
-"startDepth":"0.0",
-"stopDepth":"13557.5",
-"step":"0.5000",
-"isCurrentRevision":1
-},
-{
-"idCurve":152448,
-"name":"POR",
-"description":"dukpet - total porosity [74]",
-"dimension":1,
-"delimiter":" ",
-"type":"NUMBER",
-"createdAt":"2019-04-01T09:23:48.000Z",
-"updatedAt":"2019-04-01T09:23:48.000Z",
-"idDataset":12008,
-"idRevision":151111,
-"unit":"v/v",
-"startDepth":"0.0",
-"stopDepth":"13557.5",
-"step":"0.5000",
-"isCurrentRevision":1
-},
-{
-"idCurve":152449,
-"name":"PORE",
-"description":"Enterprise Effective Porosity from Density log",
-"dimension":1,
-"delimiter":" ",
-"type":"NUMBER",
-"createdAt":"2019-04-01T09:23:48.000Z",
-"updatedAt":"2019-04-01T09:23:48.000Z",
-"idDataset":12008,
-"idRevision":151112,
-"unit":"FRAC",
-"startDepth":"0.0",
-"stopDepth":"13557.5",
-"step":"0.5000",
-"isCurrentRevision":1
-},
-{
-"idCurve":152450,
-"name":"PORENET",
-"description":"EntOil Net Porosity using net flag NETS_EO2",
-"dimension":1,
-"delimiter":" ",
-"type":"NUMBER",
-"createdAt":"2019-04-01T09:23:48.000Z",
-"updatedAt":"2019-04-01T09:23:48.000Z",
-"idDataset":12008,
-"idRevision":151108,
-"unit":"FRAC",
-"startDepth":"0.0",
-"stopDepth":"13557.5",
-"step":"0.5000",
-"isCurrentRevision":1
-},
-{
-"idCurve":152451,
-"name":"RES_DEP",
-"description":"deep induction resistivity [1123]",
-"dimension":1,
-"delimiter":" ",
-"type":"NUMBER",
-"createdAt":"2019-04-01T09:23:48.000Z",
-"updatedAt":"2019-04-01T09:23:48.000Z",
-"idDataset":12008,
-"idRevision":151109,
-"unit":"ohm.m",
-"startDepth":"0.0",
-"stopDepth":"13557.5",
-"step":"0.5000",
-"isCurrentRevision":1
-},
-{
-"idCurve":152452,
-"name":"RES_MED",
-"description":"medium induction resistivity [1124]",
-"dimension":1,
-"delimiter":" ",
-"type":"NUMBER",
-"createdAt":"2019-04-01T09:23:48.000Z",
-"updatedAt":"2019-04-01T09:23:48.000Z",
-"idDataset":12008,
-"idRevision":151110,
-"unit":"ohm.m",
-"startDepth":"0.0",
-"stopDepth":"13557.5",
-"step":"0.5000",
-"isCurrentRevision":1
-},
-{
-"idCurve":152453,
-"name":"RT",
-"description":"dukpet - true resistivity [76]",
-"dimension":1,
-"delimiter":" ",
-"type":"NUMBER",
-"createdAt":"2019-04-01T09:23:48.000Z",
-"updatedAt":"2019-04-01T09:23:48.000Z",
-"idDataset":12008,
-"idRevision":151113,
-"unit":"ohm.m",
-"startDepth":"0.0",
-"stopDepth":"13557.5",
-"step":"0.5000",
-"isCurrentRevision":1
-},
-{
-"idCurve":152454,
-"name":"RW",
-"description":"dukpet - apparent Rw [137]",
-"dimension":1,
-"delimiter":" ",
-"type":"NUMBER",
-"createdAt":"2019-04-01T09:23:48.000Z",
-"updatedAt":"2019-04-01T09:23:48.000Z",
-"idDataset":12008,
-"idRevision":151114,
-"unit":"ohm.m",
-"startDepth":"0.0",
-"stopDepth":"13557.5",
-"step":"0.5000",
-"isCurrentRevision":1
-},
-{
-"idCurve":152455,
-"name":"SH",
-"description":"editted in petrel",
-"dimension":1,
-"delimiter":" ",
-"type":"NUMBER",
-"createdAt":"2019-04-01T09:23:48.000Z",
-"updatedAt":"2019-04-01T09:23:48.000Z",
-"idDataset":12008,
-"idRevision":151115,
-"unit":"v/v",
-"startDepth":"0.0",
-"stopDepth":"13557.5",
-"step":"0.5000",
-"isCurrentRevision":1
-},
-{
-"idCurve":152456,
-"name":"SHEAR_SLOWNESS_4-8-1",
-"description":"",
-"dimension":1,
-"delimiter":" ",
-"type":"NUMBER",
-"createdAt":"2019-04-01T09:23:48.000Z",
-"updatedAt":"2019-04-01T09:23:48.000Z",
-"idDataset":12008,
-"idRevision":151116,
-"unit":"us/ft",
-"startDepth":"0.0",
-"stopDepth":"13557.5",
-"step":"0.5000",
-"isCurrentRevision":1
-},
-{
-"idCurve":152457,
-"name":"SW",
-"description":"dukpet - water saturation [77]",
-"dimension":1,
-"delimiter":" ",
-"type":"NUMBER",
-"createdAt":"2019-04-01T09:23:48.000Z",
-"updatedAt":"2019-04-01T09:23:48.000Z",
-"idDataset":12008,
-"idRevision":151117,
-"unit":"v/v",
-"startDepth":"0.0",
-"stopDepth":"13557.5",
-"step":"0.5000",
-"isCurrentRevision":1
-},
-{
-"idCurve":152458,
-"name":"TVDSS",
-"description":"",
-"dimension":1,
-"delimiter":" ",
-"type":"NUMBER",
-"createdAt":"2019-04-01T09:23:48.000Z",
-"updatedAt":"2019-04-01T09:23:48.000Z",
-"idDataset":12008,
-"idRevision":151118,
-"unit":"ft",
-"startDepth":"0.0",
-"stopDepth":"13557.5",
-"step":"0.5000",
-"isCurrentRevision":1
-},
-{
-"idCurve":152459,
-"name":"VCL",
-"description":"EntOil VSH converted from % to frac & clipped min/max 0/1",
-"dimension":1,
-"delimiter":" ",
-"type":"NUMBER",
-"createdAt":"2019-04-01T09:23:48.000Z",
-"updatedAt":"2019-04-01T09:23:48.000Z",
-"idDataset":12008,
-"idRevision":151120,
-"unit":"FRAC",
-"startDepth":"0.0",
-"stopDepth":"13557.5",
-"step":"0.5000",
-"isCurrentRevision":1
-},
-{
-"idCurve":152460,
-"name":"VSH",
-"description":"dukpet - shale volume [75]",
-"dimension":1,
-"delimiter":" ",
-"type":"NUMBER",
-"createdAt":"2019-04-01T09:23:48.000Z",
-"updatedAt":"2019-04-01T09:23:48.000Z",
-"idDataset":12008,
-"idRevision":151119,
-"unit":"v/v",
-"startDepth":"0.0",
-"stopDepth":"13557.5",
-"step":"0.5000",
-"isCurrentRevision":1
-}
-]
-}]
-}]);
+

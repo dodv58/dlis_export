@@ -29,14 +29,19 @@ const REP_CODE = {
     UNITS :    27,     //V
     REPCODE_MAX : 28
 }
+const NULL_VAL = -9999
+
 function encode(buffer, code, value){
-    console.log("encode " + code + "||" + JSON.stringify(value) )
+    console.log("encode " + code + "||" + JSON.stringify(value)+"||"+buffer.bufferIdx+"||"+buffer.writeIdx);
+    if(!code){
+        process.exit(1);
+    }
     let len = 0;
     switch(code){
         case REP_CODE.FSHORT:
             break;
         case REP_CODE.FSINGL:
-            len = encodeFsingl(buffer, value);
+            len = encodeFsingl(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
             break;
         case REP_CODE.FSING1:
             break;
@@ -47,7 +52,7 @@ function encode(buffer, code, value){
         case REP_CODE.VSINGL:
             break;
         case REP_CODE.FDOUBL:
-            len = encodeFdoubl(buffer, value);
+            len = encodeFdoubl(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
             break;
         case REP_CODE.FDOUB1:
             break;
@@ -64,33 +69,33 @@ function encode(buffer, code, value){
         case REP_CODE.SLONG:
             break;
         case REP_CODE.USHORT:
-            len = encodeUshort(buffer, value);
+            len = encodeUshort(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
             break;
         case REP_CODE.UNORM:
-            len = encodeUnorm(buffer, value);
+            len = encodeUnorm(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
             break;
         case REP_CODE.ULONG:
-            len = encodeUlong(buffer, value);
+            len = encodeUlong(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
             break;
         case REP_CODE.UVARI:
         case REP_CODE.ORIGIN:
-            len = encodeUvari(buffer, value);
+            len = encodeUvari(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
             break;
         case REP_CODE.IDENT:
         case REP_CODE.UNITS:
-            len = encodeIdent(buffer, value);
+            len = encodeIdent(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
             break;
         case REP_CODE.ASCII:
-            len = encodeAscii(buffer, value);
+            len = encodeAscii(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
             break;
         case REP_CODE.OBNAME:
-            len = encodeObname(buffer, value);
+            len = encodeObname(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
             break;
         case REP_CODE.DTIME:
-            len = encodeDtime(buffer, value);
+            len = encodeDtime(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
             break;
         case REP_CODE.OBJREF:
-            len = encodeObjref(buffer, value);
+            len = encodeObjref(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
             break;
         case REP_CODE.ATTREF:
             break;
@@ -99,145 +104,169 @@ function encode(buffer, code, value){
     }
     return len;
 }
-function encodeIdent(buffer, str){
+function encodeIdent(buffs, buffIdx, writeIdx, str){
     if(str.length > 255) {
         console.log("encodeIdent string is too large!!!");
         return;
     }
-    if(buffer.buffSize - buffer.writeIdx < str.length + 1){
+    if(buffs[buffIdx].length - writeIdx < str.length + 1){
         const buff = Buffer.alloc(str.length + 1, 0);
         buff.writeUInt8(str.length, 0);
         buff.write(str, 1);
-        writeOverBufferSize(buffer, buff); 
+        writeOverBufferSize(buffs, buffIdx, writeIdx, buff); 
     }
     else {
-        buffer.buffs[buffer.bufferIdx].writeUInt8(str.length, buffer.writeIdx);
-        buffer.buffs[buffer.bufferIdx].write(str, buffer.writeIdx + 1);
-        buffer.writeIdx += str.length + 1;
+        buffs[buffIdx].writeUInt8(str.length, writeIdx);
+        buffs[buffIdx].write(str, writeIdx + 1);
     }
     return str.length + 1;
 }
-function encodeObname(buffer, obname){
+function encodeObname(buffs, buffIdx, writeIdx, obname){
     let len = 0;
-    len += encodeUvari(buffer, obname.origin);
-    len += encodeUshort(buffer, obname.copy_number);
-    len += encodeIdent(buffer, obname.name);
+    let bytes = 0;
+    bytes = encodeUvari(buffs, buffIdx, writeIdx, obname.origin);
+    if(bytes == -1) return -1;
+    else {
+        len += bytes;
+        if(writeIdx + bytes >= buffs[buffIdx].length){
+            buffIdx = (buffIdx + 1) % buffs.length;
+            writeIdx = bytes - (buffs[buffIdx].length - writeIdx);
+        }
+        else {
+            writeIdx += bytes;
+        }
+    }
+    bytes = encodeUshort(buffs, buffIdx, writeIdx, obname.copy_number);
+    if(bytes == -1) return -1;
+    else {
+        len += bytes;
+        if(writeIdx + bytes >= buffs[buffIdx].length){
+            buffIdx = (buffIdx + 1) % buffs.length;
+            writeIdx = bytes - (buffs[buffIdx].length - writeIdx);
+        }
+        else {
+            writeIdx += bytes;
+        }
+    }
+    bytes = encodeIdent(buffs, buffIdx, writeIdx, obname.name);
+    if(bytes == -1) return -1;
+    else {
+        len += bytes;
+        if(writeIdx + bytes >= buffs[buffIdx].length){
+            buffIdx = (buffIdx + 1) % buffs.length;
+            writeIdx = bytes - (buffs[buffIdx].length - writeIdx);
+        }
+        else {
+            writeIdx += bytes;
+        }
+    }
     return len;
 }
-function encodeFsingl(buffer, val){
-    const remain = buffer.buffSize - buffer.writeIdx;
+function encodeFsingl(buffs, buffIdx, writeIdx, val){
+    const remain = buffs[buffIdx].length - writeIdx;
     if(remain < 4){
         const tmpBuff = Buffer.alloc(4, 0);
         tmpBuff.writeFloatBE(val);
-        writeOverBufferSize(buffer, tmpBuff);
+        writeOverBufferSize(buffs, buffIdx, writeIdx, tmpBuff);
     }
     else{
-        buffer.buffs[buffer.buffIdx].writeFloatBE(val, buffer.writeIdx);
-        buffer.writeIdx += 4;
+        buffs[buffIdx].writeFloatBE(val, writeIdx);
     }
     return 4;
 }
-function encodeFdoubl(val){
-    const buff = Buffer.alloc(8, 0);
-    buff.writeFloatBE(val, 0);
-    return buff;
+function encodeFdoubl(buffs, buffIdx, writeIdx, val){
+    if(typeof val == "undefined" || val == "null"){
+        val = NULL_VAL;
+    }
+    if(buffs[buffIdx].length - writeIdx < 8){
+        const buff = Buffer.alloc(8, 0);
+        buff.writeDoubleBE(val, 0);
+        writeOverBufferSize(buffs, buffIdx, writeIdx, buff);
+    }
+    else {
+        buffs[buffIdx].writeDoubleBE(val, writeIdx);
+    }
+    return 8;
 }
-function encodeUvari(buffer, val){
+function encodeUvari(buffs, buffIdx, writeIdx, val){
     let len = 0;
     if(val < 0 || val >= 1073741824){
         console.log("encodeUvari value out of range");
-        return -1;
+        return;
     }else if(val < 128){
-        len = encodeUshort(buffer, val);
+        len = encodeUshort(buffs, buffIdx, writeIdx, val);
     } else if(val < 16384){
-        len = encodeUnorm(buffer, val | 0x8000);
+        len = encodeUnorm(buffs, buffIdx, writeIdx, val | 0x8000);
     } else {
-        len = encodeSlong(buffer, val | 0xC0000000)
+        len = encodeSlong(buffs, buffIdx, writeIdx, val | 0xC0000000)
     }
     return len;
 }
-function encodeSlong(buffer, val){
-    if(buffer.buffSize - buffer.writeIdx < 1){
-        changeBuffer(buffer);
-        buffer.buffs[buffer.bufferIdx].writeInt32BE(val, buffer.writeIdx);
-        buffer.writeIdx += 4;
-    }
-    else if(buffer.buffSize - buffer.writeIdx < 4){
+function encodeSlong(buffs, buffIdx, writeIdx, val){
+    if(buffs[buffIdx].length - writeIdx < 4){
         const buff = Buffer.alloc(4, 0);
         buff.writeInt32BE(val, 0);
-        writeOverBufferSize(buffer, buff);
+        writeOverBufferSize(buffs, buffIdx, writeIdx, buff);
     }
     else {
-        buffer.buffs[buffer.bufferIdx].writeInt32BE(val, buffer.writeIdx);
-        buffer.writeIdx += 4;
+        buffs[buffIdx].writeInt32BE(val, writeIdx);
     }
     return 4;
 }
-function encodeUnorm(buffer, val){
-    if(buffer.buffSize - buffer.writeIdx < 1){
-        changeBuffer(buffer);
-        buffer.buffs[buffer.bufferIdx].writeUInt16BE(val, buffer.writeIdx);
-        buffer.writeIdx += 2;
-    }
-    else if(buffer.buffSize - buffer.writeIdx < 2){
+function encodeUnorm(buffs, buffIdx, writeIdx, val){
+    if(buffs[buffIdx].length - writeIdx < 2){
         const buff = Buffer.alloc(2, 0);
         buff.writeUInt16BE(val, 0);
-        writeOverBufferSize(buffer, buff);
+        writeOverBufferSize(buffs, buffIdx, writeIdx, buff);
     }
     else {
-        buffer.buffs[buffer.bufferIdx].writeUInt16BE(val, buffer.writeIdx);
-        buffer.writeIdx += 2;
+        buffs[buffIdx].writeUInt16BE(val, writeIdx);
     }
     return 2;
 }
-function encodeUshort(buffer, val){
-    if(buffer.buffSize - buffer.writeIdx < 1){
-        changeBuffer(buffer);
-    }
-    buffer.buffs[buffer.bufferIdx].writeUInt8(val, buffer.writeIdx);
-    buffer.writeIdx += 1;
-    return 1;
-}
-function encodeUlong(buffer, val){
-    if(buffer.buffSize - buffer.writeIdx < 1){
-        changeBuffer(buffer);
-        buffer.buffs[buffer.bufferIdx].writeUInt32BE(val, buffer.writeIdx);
-        buffer.writeIdx += 4;
-    }
-    else if(buffer.buffSize - buffer.writeIdx < 4){
-        const buff = Buffer.alloc(4, 0);
-        buff.writeUInt32BE(val, 0);
-        writeOverBufferSize(buffer, buff);
+function encodeUshort(buffs, buffIdx, writeIdx, val){
+    if(buffs[buffIdx].length - writeIdx < 1){
+        buffIdx = (buffIdx + 1)% buffs.length;
+        buffs[buffIdx].writeUInt8(val, 0);
     }
     else {
-        buffer.buffs[buffer.bufferIdx].writeUInt32BE(val, buffer.writeIdx);
-        buffer.writeIdx += 4;
+        buffs[buffIdx].writeUInt8(val, writeIdx);
+    }
+    return 1;
+}
+function encodeUlong(buffs, buffIdx, writeIdx, val){
+    if(buffs[buffIdx].length - writeIdx < 4){
+        const buff = Buffer.alloc(4, 0);
+        buff.writeUInt32BE(val, 0);
+        writeOverBufferSize(buffs, buffIdx, writeIdx, buff);
+    }
+    else {
+        buffs[buffIdx].writeUInt32BE(val, writeIdx);
     }
     return 4;
 }
-function encodeAscii(buffer, val){
-    let len = encodeUvari(buffer, val.length);
-    if(buffer.buffSize - buffer.writeIdx < 1){
-        changeBuffer(buffer);
-        buffer.buffs[buffer.bufferIdx].write(val, buffer.writeIdx);
-        buffer.writeIdx += val.length;
-    }
-    else if(buffer.buffSize - buffer.writeIdx < val.length){
-        const buff = Buffer.from(val);
-        writeOverBufferSize(buffer, buff);
+function encodeAscii(buffs, buffIdx, writeIdx, val){
+    let len = encodeUvari(buffs, buffIdx, writeIdx, val.length);
+    if(len == -1) return -1;
+    if(writeIdx + len > buffs[buffIdx].length){
+        buffIdx = (buffIdx + 1)% buffs.length;
+        writeIdx = bytes - (buffs[buffIdx].length - writeIdx);
     }
     else {
-        buffer.buffs[buffer.bufferIdx].write(val, buffer.writeIdx);
-        buffer.writeIdx += val.length;
+        writeIdx += len;
+    }
+    if(buffs[buffIdx].length - writeIdx < val.length){
+        const buff = Buffer.from(val);
+        writeOverBufferSize(buffs, buffIdx, writeIdx, buff);
+    }
+    else {
+        buffs[buffIdx].write(val, writeIdx);
     }
     len += val.length;
     return len;
 }
-function encodeDtime(buffer, val){
-    if(buffer.buffSize - buffer.writeIdx < 1){
-        changeBuffer(buffer);
-    }
-    if(buffer.buffSize - buffer.writeIdx < 8){
+function encodeDtime(buffs, buffIdx, writeIdx, val){
+    if(buffs[buffIdx].length - writeIdx < 8){
         const buff = Buffer.alloc(8, 0);
         buff.writeUInt8(val.y - 1900);
         buff.writeUInt8(val.tz << 4 | val.m, 1);
@@ -246,45 +275,46 @@ function encodeDtime(buffer, val){
         buff.writeUInt8(val.mn, 4);
         buff.writeUInt8(val.s, 5);
         buff.writeUInt16BE(val.ms, 6);
-        writeOverBufferSize(buffer, buff);
+        writeOverBufferSize(buffs, buffIdx, writeIdx, buff);
     }
     else {
-        const buff = buffer.buffs[buffer.bufferIdx];
-        const wIdx = buffer.writeIdx;
-        buff.writeUInt8(val.y - 1900, wIdx);
-        buff.writeUInt8(val.tz << 4 | val.m, wIdx + 1);
-        buff.writeUInt8(val.d, wIdx + 2);
-        buff.writeUInt8(val.h, wIdx + 3);
-        buff.writeUInt8(val.mn, wIdx + 4);
-        buff.writeUInt8(val.s, wIdx + 5);
-        buff.writeUInt16BE(val.ms, wIdx + 6);
-        buffer.writeIdx += 8;
+        const buff = buffs[buffIdx];
+        buff.writeUInt8(val.y - 1900, writeIdx);
+        buff.writeUInt8(val.tz << 4 | val.m, writeIdx + 1);
+        buff.writeUInt8(val.d, writeIdx + 2);
+        buff.writeUInt8(val.h, writeIdx + 3);
+        buff.writeUInt8(val.mn, writeIdx + 4);
+        buff.writeUInt8(val.s, writeIdx + 5);
+        buff.writeUInt16BE(val.ms, writeIdx + 6);
     }
     return 8;
 }
-function encodeObjref(buffer, val){
-    let len = encodeIdent(buffer, val.type);
-    len += encodeObname(buffer, val);
+function encodeObjref(buffs, buffIdx, writeIdx, val){
+    let len = 0;
+    let bytes = 0;
+    bytes = encodeIdent(buffs, buffIdx, writeIdx, val.type);
+    if(bytes == -1) return -1;
+    else {
+        len += bytes;
+        if(writeIdx + bytes < buffs[buffIdx].length){
+            writeIdx += bytes;
+        }
+        else {
+            buffIdx = (buffIdx + 1)% buffs.length;
+            writeIdx = bytes - (buffs[buffIdx].length - writeIdx);
+        }
+    }
+    bytes = encodeObname(buffs, buffIdx, writeIdx, val);
+    if(bytes == -1) return -1;
+    else len += bytes;
     return len;
 }
 
-function changeBuffer(buffer){
-    if(buffer.writableIdx == -1 && buffer.bufferIdx == 0){
-        //do nothing
-    }
-    else {
-        buffer.writableIdx = (buffer.writableIdx + 1) % buffer.buffCount;
-        buffer.wstream.write(buffer.buffs[buffer.writableIdx]);
-    }
-    buffer.bufferIdx = (buffer.bufferIdx + 1) % buffer.buffCount;
-    buffer.writeIdx = 0;
-}
-function writeOverBufferSize(buffer, tmpBuff){
-    const remain = buffer.buffSize - buffer.writeIdx;
-    tmpBuff.copy(buffer.buffs[buffer.bufferIdx], buffer.writeIdx, 0, remain);
-    changeBuffer(buffer);
-    tmpBuff.copy(buffer.buffs[buffer.bufferIdx], buffer.writeIdx, remain, tmpBuff.length);
-    buffer.writeIdx += tmpBuff.length - remain;
+function writeOverBufferSize(buffs, buffIdx, writeIdx, tmpBuff){
+    const remain = buffs[buffIdx].length - writeIdx;
+    tmpBuff.copy(buffs[buffIdx], writeIdx, 0, remain);
+    buffIdx = (buffIdx + 1) % buffs.length;
+    tmpBuff.copy(buffs[buffIdx], 0, remain, tmpBuff.length);
 }
 
 module.exports = {
