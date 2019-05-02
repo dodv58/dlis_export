@@ -1,6 +1,6 @@
 {
   "name": "dlis_export",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "dlis export",
   "main": "index.js",
   "scripts": {
