@@ -16,7 +16,6 @@ const COMPONENT_ROLE = {
     };
 const VR_MAX_LEN = 8192;
 const BUFF_SIZE = 10000;
-const FILE_PATH = "./tmp.dlis"
 const EFLR = {
     "FILE-HEADER": 0,
     "ORIGIN": 1,
@@ -24,7 +23,10 @@ const EFLR = {
     "FRAME": 4
 }
 
-async function dlisExport(wells){
+async function dlisExport(wells, exportPath){
+    if(!exportPath){
+        exportPath = "./export.dlis";
+    }
     const buffer = {
         buffs: [],
         writeIdx: 0,
@@ -137,8 +139,8 @@ async function dlisExport(wells){
                     data.push([]);
                     if(i != 0){
                         const rl = readline.createInterface({
-                            //input: await s3.getData(curve.key)
-                            input: fs.createReadStream("./data.txt")
+                            input: await s3.getData(curve.key)
+                            //input: fs.createReadStream("./data.txt")
                         });
                         rl.on("line", function(line) {
                             const _data = line.split(" ")[1];
@@ -186,22 +188,22 @@ async function dlisExport(wells){
     if(buffer.writableIdx == -1){
         for(let i = 0; i < buffer.bufferIdx; i++){
             //buffer.wstream.write(buffer.buffs[i]);
-            fs.appendFileSync(FILE_PATH, buffer.buffs[i]);
+            fs.appendFileSync(exportPath, buffer.buffs[i]);
         }
     }
     else {
         if(buffer.bufferIdx == 0){
             //buffer.wstream.write(buffer.buffs[buffer.buffCount - 1]);
-            fs.appendFileSync(FILE_PATH, buffer.buffs[buffer.buffCount -1]);
+            fs.appendFileSync(exportPath, buffer.buffs[buffer.buffCount -1]);
         } else {
-            fs.appendFileSync(FILE_PATH, buffer.buffs[buffer.bufferIdx -1]);
+            fs.appendFileSync(exportPath, buffer.buffs[buffer.bufferIdx -1]);
             //buffer.wstream.write(buffer.buffs[buffer.bufferIdx - 1]);
         }
     }
     const lastBuff = Buffer.alloc(buffer.writeIdx, 0);
     buffer.buffs[buffer.bufferIdx].copy(lastBuff, 0, 0, buffer.writeIdx);
     //buffer.wstream.write(lastBuff);
-    fs.appendFileSync(FILE_PATH, lastBuff);
+    fs.appendFileSync(exportPath, lastBuff);
 
     function encodeIflrHeader(obname, frameIdx){
         console.log("====== encodeIflrHeader "+frameIdx +" ======= " + buffer.writeIdx);
@@ -333,13 +335,13 @@ async function dlisExport(wells){
             //do nothing
         }
         else {
-            if(buffer.writableIdx == -1 && fs.existsSync(FILE_PATH)){
-                fs.unlinkSync(FILE_PATH);
+            if(buffer.writableIdx == -1 && fs.existsSync(exportPath)){
+                fs.unlinkSync(exportPath);
             }
             buffer.writableIdx = (buffer.writableIdx + 1) % buffer.buffCount;
             //const ret = buffer.wstream.write(buffer.buffs[buffer.writableIdx]);
             //console.log("changeBuffer write " + ret);
-            fs.appendFileSync(FILE_PATH, buffer.buffs[buffer.writableIdx]);
+            fs.appendFileSync(exportPath, buffer.buffs[buffer.writableIdx]);
         }
         buffer.bufferIdx = (buffer.bufferIdx + 1) % buffer.buffCount;
         buffer.writeIdx = buffer.writeIdx + bytes - buffer.buffSize;
