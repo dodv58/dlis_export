@@ -17,7 +17,6 @@
   },
   "homepage": "https://github.com/dodv58/dlis_export#readme",
   "dependencies": {
-    "aws-sdk": "^2.437.0",
-    "dlis_parser": "file:../dlis_log"
+    "aws-sdk": "^2.437.0"
   }
 }
