@@ -145,6 +145,7 @@ async function dlisExport(wells){
                             data[i].push(_data);
                             if(channelIdx == 0){
                                 //start a frame
+                                //currently, 1 vr = 1 lrs = 1 frame, will be improved in the future
                                 encodeIflrHeader({origin: dataset.origin, copy_number: 0, name: dataset.name }, frameIdx);
                                 data[0][0] = parseFloat(dataset.top) + frameIdx*dataset.step;
                             }
@@ -244,6 +245,7 @@ async function dlisExport(wells){
     }
 
     function encodeSet(set) {
+        //haven't checked vr max length, will be implemented in the future
         vrStartIdx = buffer.writeIdx;
         writeToBuffer([0x00, 0x00, 0xFF, 0x01]); //vr header
         vrLen = 4;
