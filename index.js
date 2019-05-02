@@ -130,7 +130,7 @@ async function dlisExport(wells, exportPath){
         //write data
         let data = [];
         async function encodeDatasetData(dataset){
-            return new Promise(function(resolve, reject) {
+            return new Promise(async function(resolve, reject) {
                 let closedStream = dataset.curves.length;
                 data.length = 0;
                 let channelIdx = 0;
