@@ -46,8 +46,17 @@ const FRAME = [
     {label: "INDEX-MAX", count: 1}
 ]
 
+const PARAMETER = [
+    {label: "LONG-NAME", repcode: REPCODE.ASCII, count: 1},
+    {label: "DIMENSION", repcode: REPCODE.UVARI},
+    {label: "AXIS", repcode: REPCODE.OBNAME},
+    {label: "ZONES", repcode: REPCODE.OBNAME},
+    {label: "VALUES"}
+]
+
 module.exports = {
     OLR: OLR,
     CHANNL: CHANNL,
-    FRAME: FRAME
+    FRAME: FRAME,
+    PARAMETER: PARAMETER
 }

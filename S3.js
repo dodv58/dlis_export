@@ -3,7 +3,7 @@ const AWS = require('aws-sdk');
 const credentials = new AWS.SharedIniFileCredentials({profile: 'wi_inventory'});
 AWS.config.credentials = credentials;
 const s3 = new AWS.S3({apiVersion: '2006-03-01'});
-const bucket = "wi-inventory";
+const bucket = "inventory-local";
 
 async function getData(key) {
     console.log('~~~ getCurveDataFromS3: ' + key);

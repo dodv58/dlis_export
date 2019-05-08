@@ -16,11 +16,13 @@ const COMPONENT_ROLE = {
     };
 const VR_MAX_LEN = 8192;
 const BUFF_SIZE = 10000;
+const NULL_VALUE = -999.25
 const EFLR = {
     "FILE-HEADER": 0,
     "ORIGIN": 1,
     "CHANNEL": 3,
-    "FRAME": 4
+    "FRAME": 4,
+    "PARAMETER": 5
 }
 
 async function dlisExport(wells, exportPath){
@@ -83,6 +85,27 @@ async function dlisExport(wells, exportPath){
 
         let channels = []
         const frames = []
+        const parameters = [];
+        //write parameter
+        for(const param of well.well_headers){
+            if(param.value.length > 0){
+                parameters.push({
+                    origin: origin,
+                    copy_number: 0,
+                    name: param.header,
+                    attribs: [[param.description], [1], [], [], [param.value]]
+                });
+            }
+        }
+        const parameterSet = {
+            type: "PARAMETER",
+            template: TEMPLATE.PARAMETER,
+            objects: parameters
+        }
+        console.log("=========================================");
+        console.log(JSON.stringify(parameterSet));
+        encodeSet(parameterSet);
+
         for(const dataset of well.datasets){
             origin += 1;
             dataset.origin = origin;
@@ -111,6 +134,7 @@ async function dlisExport(wells, exportPath){
                 attribs: [[], curves, ["BOREHOLE-DEPTH"], ["INCREASING"], [dataset.step != 0? parseFloat(dataset.step) : null], [], [parseFloat(dataset.top)], [parseFloat(dataset.bottom)]]
             })
         }
+
         //write channel
         const channelSet = {
             type: "CHANNEL",
@@ -135,46 +159,49 @@ async function dlisExport(wells, exportPath){
                 data.length = 0;
                 let channelIdx = 0;
                 let frameIdx = 1;
+                data.push([]); //for TDEP
                 for(const [i, curve] of dataset.curves.entries()){
                     data.push([]);
-                    if(i != 0){
-                        const rl = readline.createInterface({
-                            input: await s3.getData(curve.key)
-                            //input: fs.createReadStream("./data.txt")
-                        });
-                        rl.on("line", function(line) {
-                            const _data = line.split(" ")[1];
-                            data[i].push(_data);
-                            if(channelIdx == 0){
-                                //start a frame
-                                //currently, 1 vr = 1 lrs = 1 frame, will be improved in the future
-                                encodeIflrHeader({origin: dataset.origin, copy_number: 0, name: dataset.name }, frameIdx);
-                                data[0][0] = parseFloat(dataset.top) + frameIdx*dataset.step;
+                    const rl = readline.createInterface({
+                        input: await s3.getData(curve.key)
+                        //input: fs.createReadStream("./data.txt")
+                    });
+                    rl.on("line", function(line) {
+                        const _data = line.split(" ")[1];
+                        data[i+1].push(_data);
+                        if(channelIdx == 0){
+                            //start a frame
+                            //currently, 1 vr = 1 lrs = 1 frame, will be improved in the future
+                            encodeIflrHeader({origin: dataset.origin, copy_number: 0, name: dataset.name }, frameIdx);
+                            if(dataset.step != 0){
+                                data[0][0] = parseFloat(dataset.top) + (frameIdx-1)*dataset.step;
+                            }else {
+                                data[0][0] = parseFloat(line.split(" ")[0]);
                             }
-                            while(data[channelIdx][0]){
-                                encodeIflrData(curve.type == "TEXT"?REP_CODE.ASCII : REP_CODE.FDOUBL, data[channelIdx].shift());
-                                if(channelIdx == dataset.curves.length - 1){
-                                    //end of frame
-                                    writeLRSHeader(0b00000000, 0b00000000); //lrs length
-                                    vrLen += lrsLen;
-                                    writeVRLen(); 
-                                    channelIdx = 0;
-                                    frameIdx += 1;
-                                    console.log(buffer.buffs[buffer.bufferIdx].slice(vrStartIdx, vrStartIdx + 8))
-                                }
-                                else {
-                                    channelIdx += 1;
-                                }
+                        }
+                        while(data[channelIdx][0]){
+                            encodeIflrData(curve.type == "TEXT"?REP_CODE.ASCII : REP_CODE.FDOUBL, data[channelIdx].shift());
+                            if(channelIdx == dataset.curves.length){
+                                //end of frame
+                                writeLRSHeader(0b00000000, 0b00000000); //lrs length
+                                vrLen += lrsLen;
+                                writeVRLen(); 
+                                channelIdx = 0;
+                                frameIdx += 1;
+                                console.log(buffer.buffs[buffer.bufferIdx].slice(vrStartIdx, vrStartIdx + 8))
                             }
+                            else {
+                                channelIdx += 1;
+                            }
+                        }
 
-                        });
-                        rl.on("close", () => {
-                            closedStream -= 1;
-                            if(closedStream == 0) {
-                                resolve();
-                            }
-                        })
-                    }
+                    });
+                    rl.on("close", () => {
+                        closedStream -= 1;
+                        if(closedStream == 0) {
+                            resolve();
+                        }
+                    })
                 }
 
             })
@@ -235,6 +262,9 @@ async function dlisExport(wells, exportPath){
         lrsLen += bytes;
     }
     function encodeIflrData(repcode, data){
+        if(repcode == REP_CODE.FDOUBL && isNaN(data)){
+            data = NULL_VALUE;
+        }
         const bytes = encoder.encode(buffer, repcode, data);
         //update state
         if(buffer.writeIdx + bytes < buffer.buffSize){
@@ -266,13 +296,13 @@ async function dlisExport(wells, exportPath){
             if(item.count) format = format | 0b01000;
             if(item.repcode) {
                 format = format | 0b00100;
-            }
+            }/*
             else {
                 //encode repcode of template following data of attributes
                 //if not, default repcode is IDENT
                 format = format | 0b00100;
                 repcode = REP_CODE.FDOUBL; 
-            }
+            }*/
             lrsLen += encodeComponent(COMPONENT_ROLE.ATTRIB, format, item.label, item.count, repcode);
         }
         //encode objects
@@ -284,6 +314,7 @@ async function dlisExport(wells, exportPath){
                 values: []
             }
             for(let i = 0; i < obj.attribs.length; i++){
+                let _format = 0b00001;
                 if(obj.attribs[i].length == 0){
                     console.log("--> ABSATR " + lrsLen);
                     lrsLen += encodeComponent(COMPONENT_ROLE.ABSATR);
@@ -292,18 +323,20 @@ async function dlisExport(wells, exportPath){
                     if(set.template[i].repcode){
                         values.repcode = set.template[i].repcode;
                     }
-                    else if(typeof obj.attribs[i][0] == "number"){
-                        values.repcode = REP_CODE.FDOUBL;
-                    }else {
-                        values.repcode = REP_CODE.ASCII;
+                    else {
+                        _format = _format | 0b00100;
+                        if(isNaN(obj.attribs[i][0])){
+                            values.repcode = REP_CODE.ASCII;
+                        }else {
+                            values.repcode = REP_CODE.FDOUBL;
+                        }
                     }
                     values.count = set.template.count ? set.template.count : obj.attribs[i].length;
                     values.values = obj.attribs[i];
                     if(values.count > 1){
-                        lrsLen += encodeComponent(COMPONENT_ROLE.ATTRIB, 0b01001, null, values.count, null, null, values)
-                    }else {
-                        lrsLen += encodeComponent(COMPONENT_ROLE.ATTRIB, 0b00001, null, null, null, null, values)
+                        _format = _format | 0b01000;
                     }
+                    lrsLen += encodeComponent(COMPONENT_ROLE.ATTRIB, _format, null, values.count, values.repcode, null, values)
                 }
             }
         }
@@ -373,27 +406,27 @@ async function dlisExport(wells, exportPath){
                 break;
             case COMPONENT_ROLE.ATTRIB:
             case COMPONENT_ROLE.INVATR:
-                if(args1) {
+                if(format & 0b00010000 && args1) {
                     bytes = encoder.encode(buffer, REP_CODE.IDENT, args1); // label
                     updateState(bytes);
                     if(bytes == -1) return -1;
                 }
-                if(args2) {
+                if(format & 0b00001000 && args2) {
                     bytes = encoder.encode(buffer, REP_CODE.UVARI, args2); // count
                     updateState(bytes);
                     if(bytes == -1) return -1;
                 }
-                if(args3) {
+                if(format & 0b00000100 && args3) {
                     bytes = encoder.encode(buffer, REP_CODE.USHORT, args3); // representation code
                     updateState(bytes);
                     if(bytes == -1) return -1;
                 }
-                if(args4) {
+                if(format & 0b00000010 && args4) {
                     bytes = encoder.encode(buffer, REP_CODE.IDENT, args4); // units
                     updateState(bytes);
                     if(bytes == -1) return -1;
                 }
-                if(args5) {
+                if(format & 0b00000001 && args5) {
                     for(const val of args5.values){
                         bytes = encoder.encode(buffer, args5.repcode, val);
                         updateState(bytes);
