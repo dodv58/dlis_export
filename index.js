@@ -211,26 +211,7 @@ async function dlisExport(wells, exportPath){
             await encodeDatasetData(dataset);
         }
     }
-    //write what's left in buffer to file
-    if(buffer.writableIdx == -1){
-        for(let i = 0; i < buffer.bufferIdx; i++){
-            //buffer.wstream.write(buffer.buffs[i]);
-            fs.appendFileSync(exportPath, buffer.buffs[i]);
-        }
-    }
-    else {
-        if(buffer.bufferIdx == 0){
-            //buffer.wstream.write(buffer.buffs[buffer.buffCount - 1]);
-            fs.appendFileSync(exportPath, buffer.buffs[buffer.buffCount -1]);
-        } else {
-            fs.appendFileSync(exportPath, buffer.buffs[buffer.bufferIdx -1]);
-            //buffer.wstream.write(buffer.buffs[buffer.bufferIdx - 1]);
-        }
-    }
-    const lastBuff = Buffer.alloc(buffer.writeIdx, 0);
-    buffer.buffs[buffer.bufferIdx].copy(lastBuff, 0, 0, buffer.writeIdx);
-    //buffer.wstream.write(lastBuff);
-    fs.appendFileSync(exportPath, lastBuff);
+
 
     function encodeIflrHeader(obname, frameIdx){
         console.log("====== encodeIflrHeader "+frameIdx +" ======= " + buffer.writeIdx);
@@ -514,6 +495,28 @@ async function dlisExport(wells, exportPath){
             }
         }
     }
+
+    //write what's left in buffer to file
+    if(buffer.writableIdx == -1){
+        for(let i = 0; i < buffer.bufferIdx; i++){
+            //buffer.wstream.write(buffer.buffs[i]);
+            fs.appendFileSync(exportPath, buffer.buffs[i]);
+        }
+    }
+    else {
+        if(buffer.bufferIdx == 0){
+            //buffer.wstream.write(buffer.buffs[buffer.buffCount - 1]);
+            fs.appendFileSync(exportPath, buffer.buffs[buffer.buffCount -1]);
+        } else {
+            fs.appendFileSync(exportPath, buffer.buffs[buffer.bufferIdx -1]);
+            //buffer.wstream.write(buffer.buffs[buffer.bufferIdx - 1]);
+        }
+    }
+    const lastBuff = Buffer.alloc(buffer.writeIdx, 0);
+    buffer.buffs[buffer.bufferIdx].copy(lastBuff, 0, 0, buffer.writeIdx);
+    //buffer.wstream.write(lastBuff);
+    fs.appendFileSync(exportPath, lastBuff);
+    return Promise.resolve();
 }
 
 module.exports = {
