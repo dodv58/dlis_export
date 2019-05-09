@@ -32,7 +32,7 @@ const REP_CODE = {
 const NULL_VAL = -9999
 
 function encode(buffer, code, value){
-    console.log("encode " + code + "||" + JSON.stringify(value)+"||"+buffer.bufferIdx+"||"+buffer.writeIdx);
+    //console.log("encode " + code + "||" + JSON.stringify(value)+"||"+buffer.bufferIdx+"||"+buffer.writeIdx);
     if(!code){
         process.exit(1);
     }

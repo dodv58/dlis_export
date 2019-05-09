@@ -3,7 +3,8 @@ const encoder = require('./Encoder.js');
 const REP_CODE = encoder.REP_CODE;
 const TEMPLATE = require("./Template.js");
 const readline = require("readline");
-const s3 = require("./S3.js");
+const config = require('./common.js');
+let s3;
 
 const COMPONENT_ROLE = {
     ABSATR: 0,
@@ -102,8 +103,7 @@ async function dlisExport(wells, exportPath){
             template: TEMPLATE.PARAMETER,
             objects: parameters
         }
-        console.log("=========================================");
-        console.log(JSON.stringify(parameterSet));
+        //console.log(JSON.stringify(parameterSet));
         encodeSet(parameterSet);
 
         for(const dataset of well.datasets){
@@ -188,7 +188,7 @@ async function dlisExport(wells, exportPath){
                                 writeVRLen(); 
                                 channelIdx = 0;
                                 frameIdx += 1;
-                                console.log(buffer.buffs[buffer.bufferIdx].slice(vrStartIdx, vrStartIdx + 8))
+                                //console.log(buffer.buffs[buffer.bufferIdx].slice(vrStartIdx, vrStartIdx + 8))
                             }
                             else {
                                 channelIdx += 1;
@@ -214,14 +214,14 @@ async function dlisExport(wells, exportPath){
 
 
     function encodeIflrHeader(obname, frameIdx){
-        console.log("====== encodeIflrHeader "+frameIdx +" ======= " + buffer.writeIdx);
+        //console.log("====== encodeIflrHeader "+frameIdx +" ======= " + buffer.writeIdx);
         vrStartIdx = buffer.writeIdx;
         writeToBuffer([0x00, 0x00, 0xFF, 0x01]); //vr header
         vrLen = 4;
         lrsStartIdx = buffer.writeIdx;
         writeToBuffer([0x00, 0x00, 0x00, 0x00]); //lrs header
         lrsLen = 4;
-        console.log("===========> "+ buffer.writeIdx);
+        //console.log("===========> "+ buffer.writeIdx);
         let bytes = 0;
         bytes = encoder.encode(buffer, REP_CODE.OBNAME, obname);
         //update state
@@ -297,7 +297,7 @@ async function dlisExport(wells, exportPath){
             for(let i = 0; i < obj.attribs.length; i++){
                 let _format = 0b00001;
                 if(obj.attribs[i].length == 0){
-                    console.log("--> ABSATR " + lrsLen);
+                    //console.log("--> ABSATR " + lrsLen);
                     lrsLen += encodeComponent(COMPONENT_ROLE.ABSATR);
                 }
                 else{
@@ -344,7 +344,7 @@ async function dlisExport(wells, exportPath){
         }
     }
     function changeBuffer(bytes){ //write current buffer to file
-        console.log("changeBuffer writeableIdx " + buffer.writableIdx + " bufferIdx " + buffer.bufferIdx);
+        //console.log("changeBuffer writeableIdx " + buffer.writableIdx + " bufferIdx " + buffer.bufferIdx);
         if(buffer.writableIdx == -1 && buffer.bufferIdx == 0){
             //do nothing
         }
@@ -361,7 +361,7 @@ async function dlisExport(wells, exportPath){
         buffer.writeIdx = buffer.writeIdx + bytes - buffer.buffSize;
     }
     function encodeComponent(role, format, args1, args2, args3, args4, args5){ //return -1 if 
-        console.log("encodeComponent " + buffer.writeIdx + " header " + (role << 5 | format));
+        //console.log("encodeComponent " + buffer.writeIdx + " header " + (role << 5 | format));
         const sBufferIdx = buffer.bufferIdx;
         const sWriteIdx = buffer.writeIdx; 
         writeToBuffer([role << 5 | format]); //write component header
@@ -443,8 +443,8 @@ async function dlisExport(wells, exportPath){
         if(vrStartIdx > buffer.writeIdx){
             bufferIdx = buffer.bufferIdx == 0 ? buffer.buffCount - 1 : buffer.bufferIdx - 1;
         }
-        console.log("writeVRLen bufferIdx "+ bufferIdx + " writeIdx " + vrStartIdx +" len "  + vrLen);
-        console.log(buffer.buffs[bufferIdx].slice(vrStartIdx, vrStartIdx + 10));
+        //console.log("writeVRLen bufferIdx "+ bufferIdx + " writeIdx " + vrStartIdx +" len "  + vrLen);
+        //console.log(buffer.buffs[bufferIdx].slice(vrStartIdx, vrStartIdx + 10));
         if(buffer.buffSize - vrStartIdx < 2){
             const buff = Buffer.alloc(2, 0);
             buff.writeUInt16BE(vrLen);
@@ -454,16 +454,16 @@ async function dlisExport(wells, exportPath){
         else {
             buffer.buffs[bufferIdx].writeUInt16BE(vrLen, vrStartIdx);
         }
-        console.log(buffer.buffs[bufferIdx].slice(vrStartIdx, vrStartIdx + 10));
+        //console.log(buffer.buffs[bufferIdx].slice(vrStartIdx, vrStartIdx + 10));
     }
     function writeLRSHeader(attributes, type){
-        console.log("writeLRSHeader lrsStartIdx " +lrsStartIdx + " writeIdx " + buffer.writeIdx + " len "+ lrsLen);
+        //console.log("writeLRSHeader lrsStartIdx " +lrsStartIdx + " writeIdx " + buffer.writeIdx + " len "+ lrsLen);
         if(lrsLen % 2 == 1){
             attributes = attributes | 0b00000001;//pad bytes are presented 
             writeToBuffer([0x01]); //pad count
             lrsLen += 1;
         }
-        console.log("LRS len: "+lrsLen);
+        //console.log("LRS len: "+lrsLen);
         let bufferIdx = buffer.bufferIdx;
         if(lrsStartIdx > buffer.writeIdx){
             bufferIdx = buffer.bufferIdx == 0 ? buffer.buffCount - 1 : buffer.bufferIdx - 1;
@@ -519,7 +519,13 @@ async function dlisExport(wells, exportPath){
     return Promise.resolve();
 }
 
-module.exports = {
-    export: dlisExport
+
+module.exports = function(_config){
+    Object.assign(config, _config);
+    s3 = require('./S3.js');
+    const module = {
+        export: dlisExport
+    };
+    return module;
 }
 
