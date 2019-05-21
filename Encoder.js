@@ -246,6 +246,7 @@ function encodeUlong(buffs, buffIdx, writeIdx, val){
     return 4;
 }
 function encodeAscii(buffs, buffIdx, writeIdx, val){
+    val = val.toString();
     let len = encodeUvari(buffs, buffIdx, writeIdx, val.length);
     if(len == -1) return -1;
     if(writeIdx + len > buffs[buffIdx].length){

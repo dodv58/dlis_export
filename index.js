@@ -26,6 +26,34 @@ const EFLR = {
     "PARAMETER": 5
 }
 
+function fillStrWithSpace(str, len){
+    if(str.len < len){
+        const x = len - str.len;
+        str = new Array(x+1).join(' ') + str;
+    }
+    return str;
+}
+
+function customSplit(str, delimiter){
+    let words;
+    if(str.includes('"')){
+        str = str.replace(/"(.*?)"/g, function (match, idx, string){
+            let tmp = match.replace(/"/g, '');
+            return '"' + Buffer.from(tmp).toString('base64') + '"';
+        })
+        words = str.split(delimiter);
+        words = words.map(function(word){
+            if(word.includes('"')){
+                return Buffer.from(word.replace(/"/g, ''), 'base64').toString();
+            }
+            else return word;
+        })
+    }else {
+        words = str.split(delimiter);
+    }
+    return words;
+}
+
 async function dlisExport(wells, exportPath){
     try{
         if(!exportPath){
@@ -69,7 +97,7 @@ async function dlisExport(wells, exportPath){
                 name: "hihi",
                 type: "FILE-HEADER",
                 template: [{label: "SEQUENCE-NUMBER", repcode: REP_CODE.ASCII, count: 1}, {label: "ID", repcode: REP_CODE.ASCII}],
-                objects: [{origin: origin, copy_number: 0, name: "test", attribs: [["1"], ["1"]]}]
+                objects: [{origin: origin, copy_number: 0, name: "test", attribs: [[fillStrWithSpace("1", 10)], [fillStrWithSpace("1", 65)]]}]
             }
             encodeSet(fhlr);
 
@@ -156,35 +184,41 @@ async function dlisExport(wells, exportPath){
             encodeSet(frameSet); 
 
             //write data
-            let data = [];
+            const curves = []
             async function encodeDatasetData(dataset){
                 return new Promise(async function(resolve, reject) {
                     let closedStream = dataset.curves.length;
-                    data.length = 0;
+                    curves.length = 0;
                     let channelIdx = 0;
                     let frameIdx = 1;
-                    data.push([]); //for TDEP
+                    curves.push({
+                        data: [],
+                        repcode: REP_CODE.FDOUBL
+                    }) //for TDEP
                     for(const [i, curve] of dataset.curves.entries()){
-                        data.push([]);
+                        curves.push({
+                            data: [],
+                            repcode: curve.type == "TEXT"?REP_CODE.ASCII : REP_CODE.FDOUBL
+                        })
                         const rl = readline.createInterface({
                             input: await s3.getData(curve.key)
                             //input: fs.createReadStream("./data.txt")
                         });
                         rl.on("line", function(line) {
-                            const _data = line.split(" ")[1];
-                            data[i+1].push(_data);
+                            const arr = customSplit(line, " ");
+                            curves[i+1].data.push(arr[1]);
                             if(channelIdx == 0){
                                 //start a frame
                                 //currently, 1 vr = 1 lrs = 1 frame, will be improved in the future
                                 encodeIflrHeader({origin: dataset.origin, copy_number: 0, name: dataset.name }, frameIdx);
                                 if(dataset.step != 0){
-                                    data[0][0] = parseFloat(dataset.top) + (frameIdx-1)*dataset.step;
+                                    curves[0].data[0] = parseFloat(dataset.top) + (frameIdx-1)*dataset.step;
                                 }else {
-                                    data[0][0] = parseFloat(line.split(" ")[0]);
+                                    curves[0].data[0] = parseFloat(arr[0]);
                                 }
                             }
-                            while(data[channelIdx].length > 0){
-                                encodeIflrData(curve.type == "TEXT"?REP_CODE.ASCII : REP_CODE.FDOUBL, data[channelIdx].shift());
+                            while(curves[channelIdx].data.length > 0){
+                                encodeIflrData(curves[channelIdx].repcode, curves[channelIdx].data.shift());
                                 if(channelIdx == dataset.curves.length){
                                     //end of frame
                                     writeLRSHeader(0b00000000, 0b00000000); //lrs length
