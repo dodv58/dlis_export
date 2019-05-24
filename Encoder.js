@@ -175,7 +175,8 @@ function encodeFsingl(buffs, buffIdx, writeIdx, val){
     return 4;
 }
 function encodeFdoubl(buffs, buffIdx, writeIdx, val){
-    if(typeof val == "undefined" || val == "null"){
+    //val = parseFloat(val);
+    if(typeof val == "undefined" || val == "null" || val == ""){
         val = NULL_VAL;
     }
     if(buffs[buffIdx].length - writeIdx < 8){

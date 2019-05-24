@@ -17,7 +17,7 @@ const COMPONENT_ROLE = {
     };
 const VR_MAX_LEN = 8192;
 const BUFF_SIZE = 10000;
-const NULL_VALUE = -999.25
+const NULL_VALUE = -9999
 const EFLR = {
     "FILE-HEADER": 0,
     "ORIGIN": 1,
@@ -147,7 +147,7 @@ async function dlisExport(wells, exportPath){
                     copy_number: 0,
                     name: "TDEP",
                     attribs: [[], [], [REP_CODE.FDOUBL], [dataset.unit], 
-                        [], [], [], []]
+                        [1], [], [], []]
                 })
                 for(const curve of dataset.curves){
                     curves.push({
@@ -155,7 +155,7 @@ async function dlisExport(wells, exportPath){
                         copy_number: 0,
                         name: curve.name,
                         attribs: [[curve.description], [], [curve.type == "TEXT"? REP_CODE.ASCII : REP_CODE.FDOUBL], [curve.unit], 
-                            [curve.dimension], [], [], []]
+                            [curve.dimension], [], [curve.dimension], []]
                     })
                 }
                 channels = channels.concat(curves);
@@ -193,12 +193,14 @@ async function dlisExport(wells, exportPath){
                     let frameIdx = 1;
                     curves.push({
                         data: [],
-                        repcode: REP_CODE.FDOUBL
+                        repcode: REP_CODE.FDOUBL,
+                        dimension: 1
                     }) //for TDEP
-                    for(const [i, curve] of dataset.curves.entries()){
+                    for(const [idx, curve] of dataset.curves.entries()){
                         curves.push({
                             data: [],
-                            repcode: curve.type == "TEXT"?REP_CODE.ASCII : REP_CODE.FDOUBL
+                            repcode: curve.type == "TEXT"?REP_CODE.ASCII : REP_CODE.FDOUBL,
+                            dimension: curve.dimension ? curve.dimension : 1
                         })
                         const rl = readline.createInterface({
                             input: await s3.getData(curve.key)
@@ -206,7 +208,13 @@ async function dlisExport(wells, exportPath){
                         });
                         rl.on("line", function(line) {
                             const arr = customSplit(line, " ");
-                            curves[i+1].data.push(arr[1]);
+                            for(let i = 1; i <= curve.dimension; i++){
+                                if(arr[i])
+                                    curves[idx+1].data.push(arr[i]);
+                                else 
+                                    curves[idx+1].data.push(NULL_VALUE);
+                            }
+                            //curves[i+1].data.push(arr[1]);
                             if(channelIdx == 0){
                                 //start a frame
                                 //currently, 1 vr = 1 lrs = 1 frame, will be improved in the future
@@ -218,7 +226,9 @@ async function dlisExport(wells, exportPath){
                                 }
                             }
                             while(curves[channelIdx].data.length > 0){
-                                encodeIflrData(curves[channelIdx].repcode, curves[channelIdx].data.shift());
+                                for(let i = 0; i < curves[channelIdx].dimension; i++){
+                                    encodeIflrData(curves[channelIdx].repcode, curves[channelIdx].data.shift());
+                                }
                                 if(channelIdx == dataset.curves.length){
                                     //end of frame
                                     writeLRSHeader(0b00000000, 0b00000000); //lrs length
