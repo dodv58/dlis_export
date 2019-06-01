@@ -27,6 +27,7 @@ const EFLR = {
 }
 
 function fillStrWithSpace(str, len){
+    if(typeof str != 'string') str = str.toString();
     if(str.len < len){
         const x = len - str.len;
         str = new Array(x+1).join(' ') + str;
@@ -84,34 +85,39 @@ async function dlisExport(wells, exportPath){
         buffer.buffs[buffer.bufferIdx].write('V1.00', 4);
         buffer.buffs[buffer.bufferIdx].write('RECORD', 9);
         buffer.buffs[buffer.bufferIdx].write(' 8192', 15);
-        buffer.buffs[buffer.bufferIdx].write('ssi Default Storage Set', 20);
+        let ssi =  'ssi Default Storage Set                                                             ';
+        buffer.buffs[buffer.bufferIdx].write(ssi, 20);
         buffer.writeIdx = 80;
 
         const cTime = new Date();
         const cTimeObj = {y:cTime.getUTCFullYear(), tz:2, m:cTime.getUTCMonth() + 1, d:cTime.getUTCDate(), h:cTime.getUTCHours(), mn:cTime.getUTCMinutes(), s:cTime.getUTCSeconds(), ms:cTime.getUTCMilliseconds()};
+        let origin = 0;
+        let logicalFile = 0;
         
         for(const well of wells){
+            logicalFile++;
+            origin++;
+            const FILE_ID = fillStrWithSpace("I2G-"+ well.name, 65);
             //write FHLR
-            let origin = 0;
             const fhlr = {
-                name: "hihi",
+                name: "I2G",
                 type: "FILE-HEADER",
                 template: [{label: "SEQUENCE-NUMBER", repcode: REP_CODE.ASCII, count: 1}, {label: "ID", repcode: REP_CODE.ASCII}],
-                objects: [{origin: origin, copy_number: 0, name: "test", attribs: [[fillStrWithSpace("1", 10)], [fillStrWithSpace("1", 65)]]}]
+                objects: [{origin: origin, copy_number: 0, name: "I2G-"+ well.name, attribs: [[fillStrWithSpace(logicalFile, 10)], [FILE_ID]]}]
             }
             encodeSet(fhlr);
 
             //write origin
             const olr = {
-                name: "origin",
+                name: well.name,
                 type: "ORIGIN",
                 template: TEMPLATE.OLR,
                 objects: [{
                     origin: 1,
                     copy_number: 0,
-                    name: "Defining Origin",
-                    attribs: [["123"], ["456"], [1], [1], ["FILE-TYPE"], ["product"], ["version"], ["programs"], 
-                        [cTimeObj], [], [], [], [], [well.name], [], [], [], [], [], []]
+                    name: well.name,
+                    attribs: [[FILE_ID], ["I2G"], [1], [1], ["I2G"], ["I2G"], ["I2G-2019"], ["I2G-Export"], 
+                        [cTimeObj], ["1"], [], [], ["I2G-" + well.name], [well.name], [], [], [], ["I2G"], [], []]
                 }]
             }
             encodeSet(olr);
@@ -145,7 +151,7 @@ async function dlisExport(wells, exportPath){
                 curves.push({
                     origin: origin,
                     copy_number: 0,
-                    name: "TDEP",
+                    name: "DEPTH",
                     attribs: [[], [], [REP_CODE.FDOUBL], [dataset.unit], 
                         [1], [], [], []]
                 })
@@ -425,6 +431,7 @@ async function dlisExport(wells, exportPath){
                 if(bytes == -1){
                     buffer.bufferIdx = sBufferIdx;
                     buffer.writeIdx = sWriteIdx;
+                    return -1;
                 }
                 else {
                     len += bytes;
