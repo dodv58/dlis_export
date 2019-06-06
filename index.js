@@ -100,7 +100,6 @@ async function dlisExport(wells, exportPath){
             const FILE_ID = fillStrWithSpace("I2G-"+ well.name, 65);
             //write FHLR
             const fhlr = {
-                name: "I2G",
                 type: "FILE-HEADER",
                 template: [{label: "SEQUENCE-NUMBER", repcode: REP_CODE.ASCII, count: 1}, {label: "ID", repcode: REP_CODE.ASCII}],
                 objects: [{origin: origin, copy_number: 0, name: "I2G-"+ well.name, attribs: [[fillStrWithSpace(logicalFile, 10)], [FILE_ID]]}]
