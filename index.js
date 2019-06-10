@@ -26,11 +26,22 @@ const EFLR = {
     "PARAMETER": 5
 }
 
-function fillStrWithSpace(str, len){
+function fillStrWithSpace(str, len, mode){
+    //mode = 1: fill space after text
+    //mode = 0: fill space before text
     if(typeof str != 'string') str = str.toString();
-    if(str.len < len){
-        const x = len - str.len;
-        str = new Array(x+1).join(' ') + str;
+    if(str.length >= len){
+        str = str.substring(0, len);
+    }
+    else {
+        const x = len - str.length;
+        const spaces = new Array(x+1).join(' ');
+        if(mode){
+            str = str + spaces;
+        }
+        else{
+            str = spaces + str;
+        }
     }
     return str;
 }
@@ -85,7 +96,7 @@ async function dlisExport(wells, exportPath){
         buffer.buffs[buffer.bufferIdx].write('V1.00', 4);
         buffer.buffs[buffer.bufferIdx].write('RECORD', 9);
         buffer.buffs[buffer.bufferIdx].write(' 8192', 15);
-        let ssi =  'ssi Default Storage Set                                                             ';
+        const ssi =  fillStrWithSpace('ssi Default Storage Set', 60, 1);
         buffer.buffs[buffer.bufferIdx].write(ssi, 20);
         buffer.writeIdx = 80;
 
@@ -97,18 +108,13 @@ async function dlisExport(wells, exportPath){
         for(const well of wells){
             logicalFile++;
             origin++;
-            let FILE_ID = "I2G-"+ well.name;
-            let _len = FILE_ID.length;
-            while(_len < 65){
-                FILE_ID += ' ';
-                _len += 1;
-            }
+            let FILE_ID = fillStrWithSpace("I2G-"+ well.name, 65, 1);
             
             //write FHLR
             const fhlr = {
                 type: "FILE-HEADER",
                 template: [{label: "SEQUENCE-NUMBER", repcode: REP_CODE.ASCII}, {label: "ID", repcode: REP_CODE.ASCII}],
-                objects: [{origin: origin, copy_number: 0, name: "1", attribs: [[fillStrWithSpace(logicalFile, 10)], [FILE_ID]]}]
+                objects: [{origin: origin, copy_number: 0, name: "1", attribs: [[fillStrWithSpace(logicalFile, 10, 0)], [FILE_ID]]}]
             }
             encodeSet(fhlr);
 
@@ -214,8 +220,7 @@ async function dlisExport(wells, exportPath){
                             dimension: curve.dimension ? curve.dimension : 1
                         })
                         const rl = readline.createInterface({
-                            input: await s3.getData(curve.key)
-                            //input: fs.createReadStream("./data.txt")
+                            input: curve.key ? await s3.getData(curve.key) : fs.createReadStream(curve.path)
                         });
                         rl.on("line", function(line) {
                             const arr = customSplit(line, " ");
