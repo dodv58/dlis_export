@@ -277,293 +277,341 @@ async function dlisExport(wells, exportPath){
                     await encodeDatasetData(dataset);
                 }
                 catch(err) {
-                    console.log(err);
+                    err.message = "encodeDatasetData: " + err.message;
+                    throw err;
                 }
             }
         }
 
 
         function encodeIflrHeader(obname, frameIdx){
-            //console.log("====== encodeIflrHeader "+frameIdx +" ======= " + buffer.writeIdx);
-            vrStartIdx = buffer.writeIdx;
-            writeToBuffer([0x00, 0x00, 0xFF, 0x01]); //vr header
-            vrLen = 4;
-            lrsStartIdx = buffer.writeIdx;
-            writeToBuffer([0x00, 0x00, 0x00, 0x00]); //lrs header
-            lrsLen = 4;
-            //console.log("===========> "+ buffer.writeIdx);
-            let bytes = 0;
-            bytes = encoder.encode(buffer, REP_CODE.OBNAME, obname);
-            //update state
-            if(buffer.writeIdx + bytes < buffer.buffSize){
-                buffer.writeIdx += bytes;
+            try{
+                //console.log("====== encodeIflrHeader "+frameIdx +" ======= " + buffer.writeIdx);
+                vrStartIdx = buffer.writeIdx;
+                writeToBuffer([0x00, 0x00, 0xFF, 0x01]); //vr header
+                vrLen = 4;
+                lrsStartIdx = buffer.writeIdx;
+                writeToBuffer([0x00, 0x00, 0x00, 0x00]); //lrs header
+                lrsLen = 4;
+                //console.log("===========> "+ buffer.writeIdx);
+                let bytes = 0;
+                bytes = encoder.encode(buffer, REP_CODE.OBNAME, obname);
+                //update state
+                if(buffer.writeIdx + bytes < buffer.buffSize){
+                    buffer.writeIdx += bytes;
+                }
+                else {
+                    changeBuffer(bytes);
+                }
+                lrsLen += bytes;
+                bytes = encoder.encode(buffer, REP_CODE.UVARI, frameIdx);
+                //update state
+                if(buffer.writeIdx + bytes < buffer.buffSize){
+                    buffer.writeIdx += bytes;
+                }
+                else {
+                    changeBuffer(bytes);
+                }
+                lrsLen += bytes;
             }
-            else {
-                changeBuffer(bytes);
+            catch(err){
+                err.message = "encodeIflrHeader: " + err.message;
+                throw err;
             }
-            lrsLen += bytes;
-            bytes = encoder.encode(buffer, REP_CODE.UVARI, frameIdx);
-            //update state
-            if(buffer.writeIdx + bytes < buffer.buffSize){
-                buffer.writeIdx += bytes;
-            }
-            else {
-                changeBuffer(bytes);
-            }
-            lrsLen += bytes;
         }
         function encodeIflrData(repcode, data){
-            if(repcode == REP_CODE.FDOUBL && isNaN(data)){
-                data = NULL_VALUE;
+            try{
+                if(repcode == REP_CODE.FDOUBL && isNaN(data)){
+                    data = NULL_VALUE;
+                }
+                const bytes = encoder.encode(buffer, repcode, data);
+                //update state
+                if(buffer.writeIdx + bytes < buffer.buffSize){
+                    buffer.writeIdx += bytes;
+                }
+                else {
+                    changeBuffer(bytes);
+                }
+                lrsLen += bytes;
             }
-            const bytes = encoder.encode(buffer, repcode, data);
-            //update state
-            if(buffer.writeIdx + bytes < buffer.buffSize){
-                buffer.writeIdx += bytes;
+            catch(err){
+                err.message = "encodeIflrData: " + err.message;
+                throw err;
             }
-            else {
-                changeBuffer(bytes);
-            }
-            lrsLen += bytes;
         }
 
         function encodeSet(set) {
-            //haven't checked vr max length, will be implemented in the future
-            vrStartIdx = buffer.writeIdx;
-            writeToBuffer([0x00, 0x00, 0xFF, 0x01]); //vr header
-            vrLen = 4;
-            lrsStartIdx = buffer.writeIdx;
-            writeToBuffer([0x00, 0x00, 0x00, EFLR[set.type]]); //lrs header
-            lrsLen = 4;
-            if(set.name){ 
-                lrsLen += encodeComponent(COMPONENT_ROLE.SET, 0b11000, set.type, set.name);
-            }else {
-                lrsLen += encodeComponent(COMPONENT_ROLE.SET, 0b10000, set.type);
-            }
-            //encode template
-            for(const [i, item] of set.template.entries()){
-                let format = 0b10000;
-                let repcode = item.repcode;
-                if(item.count) format = format | 0b01000;
-                if(item.repcode) {
-                    format = format | 0b00100;
-                }/*
-                else {
-                    //encode repcode of template following data of attributes
-                    //if not, default repcode is IDENT
-                    format = format | 0b00100;
-                    repcode = REP_CODE.FDOUBL; 
-                }*/
-                lrsLen += encodeComponent(COMPONENT_ROLE.ATTRIB, format, item.label, item.count, repcode);
-            }
-            //encode objects
-            for(const obj of set.objects){
-                lrsLen += encodeComponent(COMPONENT_ROLE.OBJECT, 0b10000, obj);
-                const values = {
-                    repcode: 0,
-                    count: 1,
-                    values: []
+            try{
+                //haven't checked vr max length, will be implemented in the future
+                vrStartIdx = buffer.writeIdx;
+                writeToBuffer([0x00, 0x00, 0xFF, 0x01]); //vr header
+                vrLen = 4;
+                lrsStartIdx = buffer.writeIdx;
+                writeToBuffer([0x00, 0x00, 0x00, EFLR[set.type]]); //lrs header
+                lrsLen = 4;
+                if(set.name){ 
+                    lrsLen += encodeComponent(COMPONENT_ROLE.SET, 0b11000, set.type, set.name);
+                }else {
+                    lrsLen += encodeComponent(COMPONENT_ROLE.SET, 0b10000, set.type);
                 }
-                for(let i = 0; i < obj.attribs.length; i++){
-                    let _format = 0b00001;
-                    if(obj.attribs[i].length == 0){
-                        //console.log("--> ABSATR " + lrsLen);
-                        lrsLen += encodeComponent(COMPONENT_ROLE.ABSATR);
+                //encode template
+                for(const [i, item] of set.template.entries()){
+                    let format = 0b10000;
+                    let repcode = item.repcode;
+                    if(item.count) format = format | 0b01000;
+                    if(item.repcode) {
+                        format = format | 0b00100;
+                    }/*
+                    else {
+                        //encode repcode of template following data of attributes
+                        //if not, default repcode is IDENT
+                        format = format | 0b00100;
+                        repcode = REP_CODE.FDOUBL; 
+                    }*/
+                    lrsLen += encodeComponent(COMPONENT_ROLE.ATTRIB, format, item.label, item.count, repcode);
+                }
+                //encode objects
+                for(const obj of set.objects){
+                    lrsLen += encodeComponent(COMPONENT_ROLE.OBJECT, 0b10000, obj);
+                    const values = {
+                        repcode: 0,
+                        count: 1,
+                        values: []
                     }
-                    else{
-                        if(set.template[i].repcode){
-                            values.repcode = set.template[i].repcode;
+                    for(let i = 0; i < obj.attribs.length; i++){
+                        let _format = 0b00001;
+                        if(obj.attribs[i].length == 0){
+                            //console.log("--> ABSATR " + lrsLen);
+                            lrsLen += encodeComponent(COMPONENT_ROLE.ABSATR);
                         }
-                        else {
-                            _format = _format | 0b00100;
-                            if(isNaN(obj.attribs[i][0])){
-                                values.repcode = REP_CODE.ASCII;
-                            }else {
-                                values.repcode = REP_CODE.FDOUBL;
+                        else{
+                            if(set.template[i].repcode){
+                                values.repcode = set.template[i].repcode;
                             }
+                            else {
+                                _format = _format | 0b00100;
+                                if(isNaN(obj.attribs[i][0])){
+                                    values.repcode = REP_CODE.ASCII;
+                                }else {
+                                    values.repcode = REP_CODE.FDOUBL;
+                                }
+                            }
+                            values.count = set.template.count ? set.template.count : obj.attribs[i].length;
+                            values.values = obj.attribs[i];
+                            if(values.count > 1){
+                                _format = _format | 0b01000;
+                            }
+                            lrsLen += encodeComponent(COMPONENT_ROLE.ATTRIB, _format, null, values.count, values.repcode, null, values)
                         }
-                        values.count = set.template.count ? set.template.count : obj.attribs[i].length;
-                        values.values = obj.attribs[i];
-                        if(values.count > 1){
-                            _format = _format | 0b01000;
-                        }
-                        lrsLen += encodeComponent(COMPONENT_ROLE.ATTRIB, _format, null, values.count, values.repcode, null, values)
                     }
                 }
+                writeLRSHeader(0b10000000, 0b00000000); //lrs length
+                vrLen += lrsLen;
+                writeVRLen(); 
             }
-            writeLRSHeader(0b10000000, 0b00000000); //lrs length
-            vrLen += lrsLen;
-            writeVRLen(); 
+            catch (err){
+                err.message = "encodeSet: " + err.message;
+                throw err;
+            }
         }
         function writeToBuffer(bytes){
-            if(bytes.length == 0) return;
-            if(bytes.length < buffer.buffSize - buffer.writeIdx){
-                for(let i = 0; i < bytes.length; i++){
-                    buffer.buffs[buffer.bufferIdx].writeUInt8(bytes[i], buffer.writeIdx + i);
+            try{
+                if(bytes.length == 0) return;
+                if(bytes.length < buffer.buffSize - buffer.writeIdx){
+                    for(let i = 0; i < bytes.length; i++){
+                        buffer.buffs[buffer.bufferIdx].writeUInt8(bytes[i], buffer.writeIdx + i);
+                    }
+                    //update state
+                    buffer.writeIdx += bytes.length;
                 }
-                //update state
-                buffer.writeIdx += bytes.length;
+                else {
+                    const remainLen = buffer.buffSize - buffer.writeIdx;
+                    for(let i = 0; i < remainLen; i++){
+                        buffer.buffs[buffer.bufferIdx].writeUInt8(bytes[i], buffer.writeIdx + i);
+                    }
+                    changeBuffer(remainLen);
+                    writeToBuffer(bytes.slice(remainLen));
+                }
             }
-            else {
-                const remainLen = buffer.buffSize - buffer.writeIdx;
-                for(let i = 0; i < remainLen; i++){
-                    buffer.buffs[buffer.bufferIdx].writeUInt8(bytes[i], buffer.writeIdx + i);
-                }
-                changeBuffer(remainLen);
-                writeToBuffer(bytes.slice(remainLen));
+            catch(err){
+                err.message = "writeToBuffer: " + err.message;
+                throw err;
             }
         }
         function changeBuffer(bytes){ //write current buffer to file
-            //console.log("changeBuffer writeableIdx " + buffer.writableIdx + " bufferIdx " + buffer.bufferIdx);
-            if(buffer.writableIdx == -1 && buffer.bufferIdx == 0){
-                //do nothing
-            }
-            else {
-                if(buffer.writableIdx == -1 && fs.existsSync(exportPath)){
-                    fs.unlinkSync(exportPath);
-                }
-                buffer.writableIdx = (buffer.writableIdx + 1) % buffer.buffCount;
-                //const ret = buffer.wstream.write(buffer.buffs[buffer.writableIdx]);
-                //console.log("changeBuffer write " + ret);
-                fs.appendFileSync(exportPath, buffer.buffs[buffer.writableIdx]);
-            }
-            buffer.bufferIdx = (buffer.bufferIdx + 1) % buffer.buffCount;
-            buffer.writeIdx = buffer.writeIdx + bytes - buffer.buffSize;
-        }
-        function encodeComponent(role, format, args1, args2, args3, args4, args5){ //return -1 if 
-            //console.log("encodeComponent " + buffer.writeIdx + " header " + (role << 5 | format));
-            const sBufferIdx = buffer.bufferIdx;
-            const sWriteIdx = buffer.writeIdx; 
-            writeToBuffer([role << 5 | format]); //write component header
-            let len = 1;
-            let bytes = 0;
-            function updateState(bytes){
-                if(bytes == -1){
-                    buffer.bufferIdx = sBufferIdx;
-                    buffer.writeIdx = sWriteIdx;
-                    return -1;
+            try{
+                //console.log("changeBuffer writeableIdx " + buffer.writableIdx + " bufferIdx " + buffer.bufferIdx);
+                if(buffer.writableIdx == -1 && buffer.bufferIdx == 0){
+                    //do nothing
                 }
                 else {
-                    len += bytes;
-                    if(buffer.writeIdx + bytes < buffer.buffSize){
-                        buffer.writeIdx += bytes;
+                    if(buffer.writableIdx == -1 && fs.existsSync(exportPath)){
+                        fs.unlinkSync(exportPath);
+                    }
+                    buffer.writableIdx = (buffer.writableIdx + 1) % buffer.buffCount;
+                    //const ret = buffer.wstream.write(buffer.buffs[buffer.writableIdx]);
+                    //console.log("changeBuffer write " + ret);
+                    fs.appendFileSync(exportPath, buffer.buffs[buffer.writableIdx]);
+                }
+                buffer.bufferIdx = (buffer.bufferIdx + 1) % buffer.buffCount;
+                buffer.writeIdx = buffer.writeIdx + bytes - buffer.buffSize;
+            }
+            catch(err) {
+                err.message = "changeBuffer: " + err.message
+                throw err;
+            }
+        }
+        function encodeComponent(role, format, args1, args2, args3, args4, args5){ //return -1 if 
+            try{
+                //console.log("encodeComponent " + buffer.writeIdx + " header " + (role << 5 | format));
+                const sBufferIdx = buffer.bufferIdx;
+                const sWriteIdx = buffer.writeIdx; 
+                writeToBuffer([role << 5 | format]); //write component header
+                let len = 1;
+                let bytes = 0;
+                function updateState(bytes){
+                    if(bytes == -1){
+                        buffer.bufferIdx = sBufferIdx;
+                        buffer.writeIdx = sWriteIdx;
+                        return -1;
                     }
                     else {
-                        changeBuffer(bytes);
+                        len += bytes;
+                        if(buffer.writeIdx + bytes < buffer.buffSize){
+                            buffer.writeIdx += bytes;
+                        }
+                        else {
+                            changeBuffer(bytes);
+                        }
                     }
                 }
-            }
-            switch (role){
-                case COMPONENT_ROLE.ABSATR:
-                    break;
-                case COMPONENT_ROLE.ATTRIB:
-                case COMPONENT_ROLE.INVATR:
-                    if(format & 0b00010000 && args1) {
-                        bytes = encoder.encode(buffer, REP_CODE.IDENT, args1); // label
-                        updateState(bytes);
-                        if(bytes == -1) return -1;
-                    }
-                    if(format & 0b00001000 && args2) {
-                        bytes = encoder.encode(buffer, REP_CODE.UVARI, args2); // count
-                        updateState(bytes);
-                        if(bytes == -1) return -1;
-                    }
-                    if(format & 0b00000100 && args3) {
-                        bytes = encoder.encode(buffer, REP_CODE.USHORT, args3); // representation code
-                        updateState(bytes);
-                        if(bytes == -1) return -1;
-                    }
-                    if(format & 0b00000010 && args4) {
-                        bytes = encoder.encode(buffer, REP_CODE.IDENT, args4); // units
-                        updateState(bytes);
-                        if(bytes == -1) return -1;
-                    }
-                    if(format & 0b00000001 && args5) {
-                        for(const val of args5.values){
-                            bytes = encoder.encode(buffer, args5.repcode, val);
+                switch (role){
+                    case COMPONENT_ROLE.ABSATR:
+                        break;
+                    case COMPONENT_ROLE.ATTRIB:
+                    case COMPONENT_ROLE.INVATR:
+                        if(format & 0b00010000 && args1) {
+                            bytes = encoder.encode(buffer, REP_CODE.IDENT, args1); // label
                             updateState(bytes);
                             if(bytes == -1) return -1;
                         }
-                    }
-                    break;
-                case COMPONENT_ROLE.OBJECT:
-                    bytes = encoder.encode(buffer, REP_CODE.OBNAME, args1); //args1 == obname 
-                    updateState(bytes);
-                    if(bytes == -1) return -1;
-                    break;
-                case COMPONENT_ROLE.RDSET:
-                case COMPONENT_ROLE.RSET:
-                case COMPONENT_ROLE.SET:
-                    bytes = encoder.encode(buffer, REP_CODE.IDENT, args1); // args1 == Type
-                    updateState(bytes);
-                    if(bytes == -1) return -1;
-                    if(args2) {
-                        bytes = encoder.encode(buffer, REP_CODE.IDENT, args2); // args2 == name
+                        if(format & 0b00001000 && args2) {
+                            bytes = encoder.encode(buffer, REP_CODE.UVARI, args2); // count
+                            updateState(bytes);
+                            if(bytes == -1) return -1;
+                        }
+                        if(format & 0b00000100 && args3) {
+                            bytes = encoder.encode(buffer, REP_CODE.USHORT, args3); // representation code
+                            updateState(bytes);
+                            if(bytes == -1) return -1;
+                        }
+                        if(format & 0b00000010 && args4) {
+                            bytes = encoder.encode(buffer, REP_CODE.IDENT, args4); // units
+                            updateState(bytes);
+                            if(bytes == -1) return -1;
+                        }
+                        if(format & 0b00000001 && args5) {
+                            for(const val of args5.values){
+                                bytes = encoder.encode(buffer, args5.repcode, val);
+                                updateState(bytes);
+                                if(bytes == -1) return -1;
+                            }
+                        }
+                        break;
+                    case COMPONENT_ROLE.OBJECT:
+                        bytes = encoder.encode(buffer, REP_CODE.OBNAME, args1); //args1 == obname 
                         updateState(bytes);
                         if(bytes == -1) return -1;
-                    }
-                    break;
-                default:
-                    break;
+                        break;
+                    case COMPONENT_ROLE.RDSET:
+                    case COMPONENT_ROLE.RSET:
+                    case COMPONENT_ROLE.SET:
+                        bytes = encoder.encode(buffer, REP_CODE.IDENT, args1); // args1 == Type
+                        updateState(bytes);
+                        if(bytes == -1) return -1;
+                        if(args2) {
+                            bytes = encoder.encode(buffer, REP_CODE.IDENT, args2); // args2 == name
+                            updateState(bytes);
+                            if(bytes == -1) return -1;
+                        }
+                        break;
+                    default:
+                        break;
+                }
+                return len;
             }
-            return len;
+            catch(err){
+                err.message = "encodeComponent: " + err.message;
+                throw err;
+            }
         }
 
         function writeVRLen(){
-            let bufferIdx = buffer.bufferIdx;
-            if(vrStartIdx > buffer.writeIdx){
-                bufferIdx = buffer.bufferIdx == 0 ? buffer.buffCount - 1 : buffer.bufferIdx - 1;
+            try{
+                let bufferIdx = buffer.bufferIdx;
+                if(vrStartIdx > buffer.writeIdx){
+                    bufferIdx = buffer.bufferIdx == 0 ? buffer.buffCount - 1 : buffer.bufferIdx - 1;
+                }
+                //console.log("writeVRLen bufferIdx "+ bufferIdx + " writeIdx " + vrStartIdx +" len "  + vrLen);
+                //console.log(buffer.buffs[bufferIdx].slice(vrStartIdx, vrStartIdx + 10));
+                if(buffer.buffSize - vrStartIdx < 2){
+                    const buff = Buffer.alloc(2, 0);
+                    buff.writeUInt16BE(vrLen);
+                    buff.copy(buffer.buffs[bufferIdx], vrStartIdx, 0, 1);
+                    buff.copy(buffer.buffs[(bufferIdx + 1) % buffer.buffCount], 0, 1, 2);
+                }
+                else {
+                    buffer.buffs[bufferIdx].writeUInt16BE(vrLen, vrStartIdx);
+                }
             }
-            //console.log("writeVRLen bufferIdx "+ bufferIdx + " writeIdx " + vrStartIdx +" len "  + vrLen);
-            //console.log(buffer.buffs[bufferIdx].slice(vrStartIdx, vrStartIdx + 10));
-            if(buffer.buffSize - vrStartIdx < 2){
-                const buff = Buffer.alloc(2, 0);
-                buff.writeUInt16BE(vrLen);
-                buff.copy(buffer.buffs[bufferIdx], vrStartIdx, 0, 1);
-                buff.copy(buffer.buffs[(bufferIdx + 1) % buffer.buffCount], 0, 1, 2);
-            }
-            else {
-                buffer.buffs[bufferIdx].writeUInt16BE(vrLen, vrStartIdx);
+            catch(err){
+                err.message = "writeVRLen: " + err.message;
+                throw err;
             }
             //console.log(buffer.buffs[bufferIdx].slice(vrStartIdx, vrStartIdx + 10));
         }
         function writeLRSHeader(attributes, type){
-            //console.log("writeLRSHeader lrsStartIdx " +lrsStartIdx + " writeIdx " + buffer.writeIdx + " len "+ lrsLen);
-            if(lrsLen % 2 == 1){
-                attributes = attributes | 0b00000001;//pad bytes are presented 
-                writeToBuffer([0x01]); //pad count
-                lrsLen += 1;
-            }
-            //console.log("LRS len: "+lrsLen);
-            let bufferIdx = buffer.bufferIdx;
-            if(lrsStartIdx > buffer.writeIdx){
-                bufferIdx = buffer.bufferIdx == 0 ? buffer.buffCount - 1 : buffer.bufferIdx - 1;
-            }
-            //write lrs length
-            if(buffer.buffSize - lrsStartIdx < 2){
-                const buff = Buffer.alloc(2, 0);
-                buff.writeUInt16BE(lrsLen);
-                buff.copy(buffer.buffs[bufferIdx], lrsStartIdx, 0, 1);
-                buff.copy(buffer.buffs[(bufferIdx + 1) % buffer.buffCount], 0, 1, 2);
-            }
-            else {
-                buffer.buffs[bufferIdx].writeUInt16BE(lrsLen, lrsStartIdx);
-            }
-            //write lrs attributes
-            if(lrsStartIdx + 2 < buffer.buffSize){
-                buffer.buffs[bufferIdx].writeUInt8(attributes, lrsStartIdx + 2);
-            }
-            else {
-                buffer.buffs[(bufferIdx + 1) % buffer.buffCount].writeUInt8(attributes, lrsStartIdx + 2 - buffer.buffSize)
-            }
-            //write lrs type
-            if(type){
-                if(lrsStartIdx + 3 < buffer.buffSize){
-                    buffer.buffs[bufferIdx].writeUInt8(type, lrsStartIdx + 3);
+            try{
+                if(lrsLen % 2 == 1){
+                    attributes = attributes | 0b00000001;//pad bytes are presented 
+                    writeToBuffer([0x01]); //pad count
+                    lrsLen += 1;
+                }
+                //console.log("LRS len: "+lrsLen);
+                let bufferIdx = buffer.bufferIdx;
+                if(lrsStartIdx > buffer.writeIdx){
+                    bufferIdx = buffer.bufferIdx == 0 ? buffer.buffCount - 1 : buffer.bufferIdx - 1;
+                }
+                //write lrs length
+                if(buffer.buffSize - lrsStartIdx < 2){
+                    const buff = Buffer.alloc(2, 0);
+                    buff.writeUInt16BE(lrsLen);
+                    buff.copy(buffer.buffs[bufferIdx], lrsStartIdx, 0, 1);
+                    buff.copy(buffer.buffs[(bufferIdx + 1) % buffer.buffCount], 0, 1, 2);
                 }
                 else {
-                    buffer.buffs[(bufferIdx + 1) % buffer.buffCount].writeUInt8(type, lrsStartIdx + 3 - buffer.buffSize)
+                    buffer.buffs[bufferIdx].writeUInt16BE(lrsLen, lrsStartIdx);
                 }
+                //write lrs attributes
+                if(lrsStartIdx + 2 < buffer.buffSize){
+                    buffer.buffs[bufferIdx].writeUInt8(attributes, lrsStartIdx + 2);
+                }
+                else {
+                    buffer.buffs[(bufferIdx + 1) % buffer.buffCount].writeUInt8(attributes, lrsStartIdx + 2 - buffer.buffSize)
+                }
+                //write lrs type
+                if(type){
+                    if(lrsStartIdx + 3 < buffer.buffSize){
+                        buffer.buffs[bufferIdx].writeUInt8(type, lrsStartIdx + 3);
+                    }
+                    else {
+                        buffer.buffs[(bufferIdx + 1) % buffer.buffCount].writeUInt8(type, lrsStartIdx + 3 - buffer.buffSize)
+                    }
+                }
+            }
+            catch(err){
+                err.message = "writeLRSHeader: " + err.message;
+                throw err;
             }
         }
 

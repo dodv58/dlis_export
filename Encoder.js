@@ -33,76 +33,82 @@ const NULL_VAL = -9999
 
 function encode(buffer, code, value){
     //console.log("encode " + code + "||" + JSON.stringify(value)+"||"+buffer.bufferIdx+"||"+buffer.writeIdx);
-    if(!code){
-        process.exit(1);
+    try{
+        if(!code){
+            process.exit(1);
+        }
+        let len = 0;
+        switch(code){
+            case REP_CODE.FSHORT:
+                break;
+            case REP_CODE.FSINGL:
+                len = encodeFsingl(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
+                break;
+            case REP_CODE.FSING1:
+                break;
+            case REP_CODE.FSING2:
+                break;
+            case REP_CODE.ISINGL:
+                break;
+            case REP_CODE.VSINGL:
+                break;
+            case REP_CODE.FDOUBL:
+                len = encodeFdoubl(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
+                break;
+            case REP_CODE.FDOUB1:
+                break;
+            case REP_CODE.FDOUB2:
+                break;
+            case REP_CODE.CSINGL:
+                break;
+            case REP_CODE.CDOUBL:
+                break;
+            case REP_CODE.SSHORT:
+                break;
+            case REP_CODE.SNORM:
+                break;
+            case REP_CODE.SLONG:
+                break;
+            case REP_CODE.USHORT:
+                len = encodeUshort(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
+                break;
+            case REP_CODE.UNORM:
+                len = encodeUnorm(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
+                break;
+            case REP_CODE.ULONG:
+                len = encodeUlong(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
+                break;
+            case REP_CODE.UVARI:
+            case REP_CODE.ORIGIN:
+                len = encodeUvari(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
+                break;
+            case REP_CODE.IDENT:
+            case REP_CODE.UNITS:
+                len = encodeIdent(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
+                break;
+            case REP_CODE.ASCII:
+                len = encodeAscii(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
+                break;
+            case REP_CODE.OBNAME:
+                len = encodeObname(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
+                break;
+            case REP_CODE.DTIME:
+                len = encodeDtime(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
+                break;
+            case REP_CODE.OBJREF:
+                len = encodeObjref(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
+                break;
+            case REP_CODE.ATTREF:
+                break;
+            case REP_CODE.STATUS:
+                break;
+        }
+        return len;
     }
-    let len = 0;
-    switch(code){
-        case REP_CODE.FSHORT:
-            break;
-        case REP_CODE.FSINGL:
-            len = encodeFsingl(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
-            break;
-        case REP_CODE.FSING1:
-            break;
-        case REP_CODE.FSING2:
-            break;
-        case REP_CODE.ISINGL:
-            break;
-        case REP_CODE.VSINGL:
-            break;
-        case REP_CODE.FDOUBL:
-            len = encodeFdoubl(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
-            break;
-        case REP_CODE.FDOUB1:
-            break;
-        case REP_CODE.FDOUB2:
-            break;
-        case REP_CODE.CSINGL:
-            break;
-        case REP_CODE.CDOUBL:
-            break;
-        case REP_CODE.SSHORT:
-            break;
-        case REP_CODE.SNORM:
-            break;
-        case REP_CODE.SLONG:
-            break;
-        case REP_CODE.USHORT:
-            len = encodeUshort(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
-            break;
-        case REP_CODE.UNORM:
-            len = encodeUnorm(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
-            break;
-        case REP_CODE.ULONG:
-            len = encodeUlong(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
-            break;
-        case REP_CODE.UVARI:
-        case REP_CODE.ORIGIN:
-            len = encodeUvari(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
-            break;
-        case REP_CODE.IDENT:
-        case REP_CODE.UNITS:
-            len = encodeIdent(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
-            break;
-        case REP_CODE.ASCII:
-            len = encodeAscii(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
-            break;
-        case REP_CODE.OBNAME:
-            len = encodeObname(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
-            break;
-        case REP_CODE.DTIME:
-            len = encodeDtime(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
-            break;
-        case REP_CODE.OBJREF:
-            len = encodeObjref(buffer.buffs, buffer.bufferIdx, buffer.writeIdx, value);
-            break;
-        case REP_CODE.ATTREF:
-            break;
-        case REP_CODE.STATUS:
-            break;
+    catch(err){
+        err.message = "encode: " + err.message
+        throw err;
     }
-    return len;
 }
 function encodeIdent(buffs, buffIdx, writeIdx, str){
     if(str.length > 255) {
