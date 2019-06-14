@@ -163,6 +163,12 @@ function encodeObname(buffs, buffIdx, writeIdx, obname){
     return len;
 }
 function encodeFsingl(buffs, buffIdx, writeIdx, val){
+    if(val == "" || isNaN(val)){
+        val = NULL_VAL;
+    }
+    else{
+        val = parseFloat(val);
+    }
     const remain = buffs[buffIdx].length - writeIdx;
     if(remain < 4){
         const tmpBuff = Buffer.alloc(4, 0);
@@ -175,9 +181,11 @@ function encodeFsingl(buffs, buffIdx, writeIdx, val){
     return 4;
 }
 function encodeFdoubl(buffs, buffIdx, writeIdx, val){
-    //val = parseFloat(val);
-    if(typeof val == "undefined" || val == "null" || val == ""){
+    if(val == "" || isNaN(val)){
         val = NULL_VAL;
+    }
+    else{
+        val = parseFloat(val);
     }
     if(buffs[buffIdx].length - writeIdx < 8){
         const buff = Buffer.alloc(8, 0);
@@ -190,6 +198,9 @@ function encodeFdoubl(buffs, buffIdx, writeIdx, val){
     return 8;
 }
 function encodeUvari(buffs, buffIdx, writeIdx, val){
+    if(isNaN(val)){
+        val = parseInt(val);
+    }
     let len = 0;
     if(val < 0 || val >= 1073741824){
         console.log("encodeUvari value out of range");
@@ -204,6 +215,9 @@ function encodeUvari(buffs, buffIdx, writeIdx, val){
     return len;
 }
 function encodeSlong(buffs, buffIdx, writeIdx, val){
+    if(isNaN(val)){
+        val = parseInt(val);
+    }
     if(buffs[buffIdx].length - writeIdx < 4){
         const buff = Buffer.alloc(4, 0);
         buff.writeInt32BE(val, 0);
@@ -215,6 +229,9 @@ function encodeSlong(buffs, buffIdx, writeIdx, val){
     return 4;
 }
 function encodeUnorm(buffs, buffIdx, writeIdx, val){
+    if(isNaN(val)){
+        val = parseInt(val);
+    }
     if(buffs[buffIdx].length - writeIdx < 2){
         const buff = Buffer.alloc(2, 0);
         buff.writeUInt16BE(val, 0);
@@ -226,6 +243,9 @@ function encodeUnorm(buffs, buffIdx, writeIdx, val){
     return 2;
 }
 function encodeUshort(buffs, buffIdx, writeIdx, val){
+    if(isNaN(val)){
+        val = parseInt(val);
+    }
     if(buffs[buffIdx].length - writeIdx < 1){
         buffIdx = (buffIdx + 1)% buffs.length;
         buffs[buffIdx].writeUInt8(val, 0);
@@ -236,6 +256,9 @@ function encodeUshort(buffs, buffIdx, writeIdx, val){
     return 1;
 }
 function encodeUlong(buffs, buffIdx, writeIdx, val){
+    if(isNaN(val)){
+        val = parseInt(val);
+    }
     if(buffs[buffIdx].length - writeIdx < 4){
         const buff = Buffer.alloc(4, 0);
         buff.writeUInt32BE(val, 0);
