@@ -10,7 +10,7 @@ const s3 = new AWS.S3({apiVersion: '2006-03-01'});
 const bucket = process.env.INVENTORY_S3BUCKET || config.s3Bucket;
 
 async function getData(key) {
-    console.log('~~~ getCurveDataFromS3: '+ bucket + '/' + key);
+    //console.log('~~~ getCurveDataFromS3: '+ bucket + '/' + key);
     let params = {
         Bucket: bucket,
         Key: key

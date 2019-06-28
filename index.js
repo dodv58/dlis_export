@@ -15,8 +15,8 @@ const COMPONENT_ROLE = {
     RSET: 6,
     SET: 7
     };
-const VR_MAX_LEN = 8192;
-const BUFF_SIZE = 10000;
+const VR_MAX_LEN = 32768;
+const BUFF_SIZE = 33000;
 const NULL_VALUE = -9999
 const EFLR = {
     "FILE-HEADER": 0,
@@ -80,22 +80,24 @@ async function dlisExport(wells, exportPath){
             bufferIdx: 0,
             writableIdx: -1,
             buffSize: BUFF_SIZE,
-            buffCount: 4
-            //wstream: fs.createWriteStream("tmp.dlis")
+            buffCount: 4,
+            vrRemain: VR_MAX_LEN
         }
         for(let i = 0; i < buffer.buffCount; i++){
             buffer.buffs.push(Buffer.alloc(buffer.buffSize, 0));
         }
         let vrStartIdx = 0; //index of the first byte of current vr in buff
         let lrsStartIdx = 0; //infex of the first byte of current lrs in buff
-        let vrLen = 0; //length of current vr does not include the header
-        let lrsLen = 0; //length of current lrs does not include the header
+        let vrLen = 0; //length of current vr 
+        let lrsLen = 0; //length of current lrs 
+        let lrsIdx = 0; //index of current lrs
+        let lrsType = 0; // current lrs type
 
         //write SUL
         buffer.buffs[buffer.bufferIdx].write('   1');
         buffer.buffs[buffer.bufferIdx].write('V1.00', 4);
         buffer.buffs[buffer.bufferIdx].write('RECORD', 9);
-        buffer.buffs[buffer.bufferIdx].write(' 8192', 15);
+        buffer.buffs[buffer.bufferIdx].write('32768', 15);
         const ssi =  fillStrWithSpace('ssi Default Storage Set', 60, 1);
         buffer.buffs[buffer.bufferIdx].write(ssi, 20);
         buffer.writeIdx = 80;
@@ -162,7 +164,7 @@ async function dlisExport(wells, exportPath){
                 curves.push({
                     origin: origin,
                     copy_number: 0,
-                    name: "DEPTH",
+                    name: "TDEP",
                     attribs: [[], [], [REP_CODE.FDOUBL], [dataset.unit], 
                         [1], [], [], []]
                 })
@@ -243,11 +245,12 @@ async function dlisExport(wells, exportPath){
                             }
                             while(curves[channelIdx].data.length > 0){
                                 for(let i = 0; i < curves[channelIdx].dimension; i++){
-                                    encodeIflrData(curves[channelIdx].repcode, curves[channelIdx].data.shift());
+                                    const bytes = encodeIflrData(curves[channelIdx].repcode, curves[channelIdx].data.shift());
+                                    lrsLen += bytes;
                                 }
                                 if(channelIdx == dataset.curves.length){
                                     //end of frame
-                                    writeLRSHeader(0b00000000, 0b00000000); //lrs length
+                                    writeLRSHeader(lrsIdx > 0? 0b01000000: 0b00000000, 0b00000000); //lrs length
                                     vrLen += lrsLen;
                                     writeVRLen(); 
                                     channelIdx = 0;
@@ -288,11 +291,15 @@ async function dlisExport(wells, exportPath){
             try{
                 //console.log("====== encodeIflrHeader "+frameIdx +" ======= " + buffer.writeIdx);
                 vrStartIdx = buffer.writeIdx;
+                lrsType = 0x00;
+                lrsIdx = 0;
+                buffer.vrRemain = VR_MAX_LEN; 
                 writeToBuffer([0x00, 0x00, 0xFF, 0x01]); //vr header
                 vrLen = 4;
                 lrsStartIdx = buffer.writeIdx;
                 writeToBuffer([0x00, 0x00, 0x00, 0x00]); //lrs header
                 lrsLen = 4;
+                buffer.vrRemain -= 8;
                 //console.log("===========> "+ buffer.writeIdx);
                 let bytes = 0;
                 bytes = encoder.encode(buffer, REP_CODE.OBNAME, obname);
@@ -313,6 +320,7 @@ async function dlisExport(wells, exportPath){
                     changeBuffer(bytes);
                 }
                 lrsLen += bytes;
+                buffer.reRemain -= bytes;
             }
             catch(err){
                 err.message = "encodeIflrHeader: " + err.message;
@@ -326,13 +334,24 @@ async function dlisExport(wells, exportPath){
                 }
                 const bytes = encoder.encode(buffer, repcode, data);
                 //update state
-                if(buffer.writeIdx + bytes < buffer.buffSize){
-                    buffer.writeIdx += bytes;
+                if(bytes < 0){
+                    writeLRSHeader(lrsIdx == 0 ? 0b00100000 : 0b01100000); //lrs length
+                    vrLen += lrsLen;
+                    writeVRLen(); 
+                    lrsIdx += 1;
+                    createVR();
+                    createLRS(lrsType);
+                    return encodeIflrData(repcode, data);
                 }
                 else {
-                    changeBuffer(bytes);
+                    if(buffer.writeIdx + bytes < buffer.buffSize){
+                        buffer.writeIdx += bytes;
+                    }
+                    else {
+                        changeBuffer(bytes);
+                    }
+                    return bytes;
                 }
-                lrsLen += bytes;
             }
             catch(err){
                 err.message = "encodeIflrData: " + err.message;
@@ -343,17 +362,17 @@ async function dlisExport(wells, exportPath){
         function encodeSet(set) {
             try{
                 //haven't checked vr max length, will be implemented in the future
-                vrStartIdx = buffer.writeIdx;
-                writeToBuffer([0x00, 0x00, 0xFF, 0x01]); //vr header
-                vrLen = 4;
-                lrsStartIdx = buffer.writeIdx;
-                writeToBuffer([0x00, 0x00, 0x00, EFLR[set.type]]); //lrs header
-                lrsLen = 4;
+                createVR();
+                lrsType = EFLR[set.type];
+                createLRS(lrsType);
+                lrsIdx = 0;
+                let compLen = 0;
                 if(set.name){ 
-                    lrsLen += encodeComponent(COMPONENT_ROLE.SET, 0b11000, set.type, set.name);
+                    compLen = encodeComponent(COMPONENT_ROLE.SET, 0b11000, set.type, set.name);
                 }else {
-                    lrsLen += encodeComponent(COMPONENT_ROLE.SET, 0b10000, set.type);
+                    compLen = encodeComponent(COMPONENT_ROLE.SET, 0b10000, set.type);
                 }
+                lrsLen += compLen;
                 //encode template
                 for(const [i, item] of set.template.entries()){
                     let format = 0b10000;
@@ -368,11 +387,13 @@ async function dlisExport(wells, exportPath){
                         format = format | 0b00100;
                         repcode = REP_CODE.FDOUBL; 
                     }*/
-                    lrsLen += encodeComponent(COMPONENT_ROLE.ATTRIB, format, item.label, item.count, repcode);
+                    compLen = encodeComponent(COMPONENT_ROLE.ATTRIB, format, item.label, item.count, repcode);
+                    lrsLen += compLen;
                 }
                 //encode objects
                 for(const obj of set.objects){
-                    lrsLen += encodeComponent(COMPONENT_ROLE.OBJECT, 0b10000, obj);
+                    compLen = encodeComponent(COMPONENT_ROLE.OBJECT, 0b10000, obj);
+                    lrsLen += compLen;
                     const values = {
                         repcode: 0,
                         count: 1,
@@ -381,8 +402,8 @@ async function dlisExport(wells, exportPath){
                     for(let i = 0; i < obj.attribs.length; i++){
                         let _format = 0b00001;
                         if(obj.attribs[i].length == 0){
-                            //console.log("--> ABSATR " + lrsLen);
-                            lrsLen += encodeComponent(COMPONENT_ROLE.ABSATR);
+                            compLen = encodeComponent(COMPONENT_ROLE.ABSATR);
+                            lrsLen += compLen;
                         }
                         else{
                             if(set.template[i].repcode){
@@ -401,11 +422,12 @@ async function dlisExport(wells, exportPath){
                             if(values.count > 1){
                                 _format = _format | 0b01000;
                             }
-                            lrsLen += encodeComponent(COMPONENT_ROLE.ATTRIB, _format, null, values.count, values.repcode, null, values)
+                            compLen = encodeComponent(COMPONENT_ROLE.ATTRIB, _format, null, values.count, values.repcode, null, values)
+                            lrsLen += compLen;
                         }
                     }
                 }
-                writeLRSHeader(0b10000000, 0b00000000); //lrs length
+                writeLRSHeader(lrsIdx == 0? 0b10000000 : 0b11000000); //lrs length
                 vrLen += lrsLen;
                 writeVRLen(); 
             }
@@ -468,21 +490,31 @@ async function dlisExport(wells, exportPath){
                 const sWriteIdx = buffer.writeIdx; 
                 writeToBuffer([role << 5 | format]); //write component header
                 let len = 1;
+                buffer.vrRemain -= 1;
                 let bytes = 0;
+                let _compLen = 0;
                 function updateState(bytes){
-                    if(bytes == -1){
+                    if(bytes < 0){
                         buffer.bufferIdx = sBufferIdx;
                         buffer.writeIdx = sWriteIdx;
-                        return -1;
+                        writeLRSHeader(lrsIdx == 0 ? 0b10100000 : 0b11100000); //lrs length
+                        vrLen += lrsLen;
+                        writeVRLen(); 
+                        lrsIdx += 1;
+                        createVR();
+                        createLRS(lrsType);
+                        return encodeComponent(role, format, args1, args2, args3, args4, args5);
                     }
                     else {
                         len += bytes;
+                        buffer.vrRemain -= bytes;
                         if(buffer.writeIdx + bytes < buffer.buffSize){
                             buffer.writeIdx += bytes;
                         }
                         else {
                             changeBuffer(bytes);
                         }
+                        return -1;
                     }
                 }
                 switch (role){
@@ -492,47 +524,63 @@ async function dlisExport(wells, exportPath){
                     case COMPONENT_ROLE.INVATR:
                         if(format & 0b00010000 && args1) {
                             bytes = encoder.encode(buffer, REP_CODE.IDENT, args1); // label
-                            updateState(bytes);
-                            if(bytes == -1) return -1;
+                            _compLen = updateState(bytes);
+                            if(_compLen > 0){
+                                return _compLen;
+                            }
                         }
                         if(format & 0b00001000 && args2) {
                             bytes = encoder.encode(buffer, REP_CODE.UVARI, args2); // count
-                            updateState(bytes);
-                            if(bytes == -1) return -1;
+                            _compLen = updateState(bytes);
+                            if(_compLen > 0){
+                                return _compLen;
+                            }
                         }
                         if(format & 0b00000100 && args3) {
                             bytes = encoder.encode(buffer, REP_CODE.USHORT, args3); // representation code
-                            updateState(bytes);
-                            if(bytes == -1) return -1;
+                            _compLen = updateState(bytes);
+                            if(_compLen > 0){
+                                return _compLen;
+                            }
                         }
                         if(format & 0b00000010 && args4) {
                             bytes = encoder.encode(buffer, REP_CODE.IDENT, args4); // units
-                            updateState(bytes);
-                            if(bytes == -1) return -1;
+                            _compLen = updateState(bytes);
+                            if(_compLen > 0){
+                                return _compLen;
+                            }
                         }
                         if(format & 0b00000001 && args5) {
                             for(const val of args5.values){
                                 bytes = encoder.encode(buffer, args5.repcode, val);
-                                updateState(bytes);
-                                if(bytes == -1) return -1;
+                                _compLen = updateState(bytes);
+                                if(_compLen > 0){
+                                    return _compLen;
+                                }
                             }
                         }
                         break;
                     case COMPONENT_ROLE.OBJECT:
                         bytes = encoder.encode(buffer, REP_CODE.OBNAME, args1); //args1 == obname 
-                        updateState(bytes);
-                        if(bytes == -1) return -1;
+                        _compLen = updateState(bytes);
+                        if(_compLen > 0){
+                            return _compLen;
+                        }
                         break;
                     case COMPONENT_ROLE.RDSET:
                     case COMPONENT_ROLE.RSET:
                     case COMPONENT_ROLE.SET:
                         bytes = encoder.encode(buffer, REP_CODE.IDENT, args1); // args1 == Type
-                        updateState(bytes);
-                        if(bytes == -1) return -1;
+                        _compLen = updateState(bytes);
+                        if(_compLen > 0){
+                            return _compLen;
+                        }
                         if(args2) {
                             bytes = encoder.encode(buffer, REP_CODE.IDENT, args2); // args2 == name
-                            updateState(bytes);
-                            if(bytes == -1) return -1;
+                            _compLen = updateState(bytes);
+                            if(_compLen > 0){
+                                return _compLen;
+                            }
                         }
                         break;
                     default:
@@ -544,6 +592,21 @@ async function dlisExport(wells, exportPath){
                 err.message = "encodeComponent: " + err.message;
                 throw err;
             }
+        }
+
+        function createVR(){
+            buffer.vrRemain = VR_MAX_LEN; 
+            vrStartIdx = buffer.writeIdx;
+            writeToBuffer([0x00, 0x00, 0xFF, 0x01]); //vr header
+            vrLen = 4;
+            buffer.vrRemain -= 4;
+        }
+
+        function createLRS(type){
+            lrsStartIdx = buffer.writeIdx;
+            writeToBuffer([0x00, 0x00, 0x00, type]); //lrs header
+            lrsLen = 4;
+            buffer.vrRemain -= 4;
         }
 
         function writeVRLen(){

@@ -103,7 +103,10 @@ function encode(buffer, code, value){
             case REP_CODE.STATUS:
                 break;
         }
-        return len;
+        if(len > buffer.vrRemain){
+            return -1;
+        }
+        else return len;
     }
     catch(err){
         err.message = "encode: " + err.message
