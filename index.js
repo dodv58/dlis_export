@@ -225,6 +225,7 @@ async function dlisExport(wells, exportPath){
                             input: curve.key ? await s3.getData(curve.key) : fs.createReadStream(curve.path)
                         });
                         rl.on("line", function(line) {
+                            if(line.trim().length <= 0) return;
                             const arr = customSplit(line, " ");
                             for(let i = 1; i <= curve.dimension; i++){
                                 if(arr[i])
