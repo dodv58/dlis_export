@@ -291,16 +291,10 @@ async function dlisExport(wells, exportPath){
         function encodeIflrHeader(obname, frameIdx){
             try{
                 //console.log("====== encodeIflrHeader "+frameIdx +" ======= " + buffer.writeIdx);
-                vrStartIdx = buffer.writeIdx;
                 lrsType = 0x00;
                 lrsIdx = 0;
-                buffer.vrRemain = VR_MAX_LEN; 
-                writeToBuffer([0x00, 0x00, 0xFF, 0x01]); //vr header
-                vrLen = 4;
-                lrsStartIdx = buffer.writeIdx;
-                writeToBuffer([0x00, 0x00, 0x00, 0x00]); //lrs header
-                lrsLen = 4;
-                buffer.vrRemain -= 8;
+                createVR();
+                createLRS(lrsType);
                 //console.log("===========> "+ buffer.writeIdx);
                 let bytes = 0;
                 bytes = encoder.encode(buffer, REP_CODE.OBNAME, obname);
@@ -312,6 +306,7 @@ async function dlisExport(wells, exportPath){
                     changeBuffer(bytes);
                 }
                 lrsLen += bytes;
+                buffer.reRemain -= bytes;
                 bytes = encoder.encode(buffer, REP_CODE.UVARI, frameIdx);
                 //update state
                 if(buffer.writeIdx + bytes < buffer.buffSize){
