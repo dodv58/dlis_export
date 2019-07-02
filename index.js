@@ -178,11 +178,15 @@ async function dlisExport(wells, exportPath){
                     })
                 }
                 channels = channels.concat(curves);
+                const datasetStep = [];
+                if(dataset.step != 0){
+                    datasetStep.push(parseFloat(dataset.step));
+                }
                 frames.push({
                     origin: origin,
                     copy_number: 0,
                     name: dataset.name,
-                    attribs: [[], curves, ["BOREHOLE-DEPTH"], ["INCREASING"], [dataset.step != 0? parseFloat(dataset.step) : null], [], [parseFloat(dataset.top)], [parseFloat(dataset.bottom)]]
+                    attribs: [[], curves, ["BOREHOLE-DEPTH"], ["INCREASING"], datasetStep, [], [parseFloat(dataset.top)], [parseFloat(dataset.bottom)]]
                 })
             }
 
