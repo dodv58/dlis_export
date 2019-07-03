@@ -172,7 +172,7 @@ function encodeObname(buffs, buffIdx, writeIdx, obname){
     return len;
 }
 function encodeFsingl(buffs, buffIdx, writeIdx, val){
-    if(val == "" || isNaN(val)){
+    if(val === "" || isNaN(val)){
         val = NULL_VAL;
     }
     else{
@@ -190,7 +190,7 @@ function encodeFsingl(buffs, buffIdx, writeIdx, val){
     return 4;
 }
 function encodeFdoubl(buffs, buffIdx, writeIdx, val){
-    if(val == "" || isNaN(val)){
+    if(val === "" || isNaN(val)){
         val = NULL_VAL;
     }
     else{
