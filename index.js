@@ -230,6 +230,7 @@ async function dlisExport(wells, exportPath){
                         });
                         rl.on("line", function(line) {
                             if(line.trim().length <= 0) return;
+                            line = line.replace(/\s\s+/g, ' ');
                             const arr = customSplit(line, " ");
                             for(let i = 1; i <= curve.dimension; i++){
                                 if(arr[i])
