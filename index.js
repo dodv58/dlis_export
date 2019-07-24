@@ -231,6 +231,10 @@ async function dlisExport(wells, exportPath){
                         rl.on("line", function(line) {
                             if(line.trim().length <= 0) return;
                             line = line.replace(/\s\s+/g, ' ');
+                            if(curves[idx+1].data.length > 1000 && curves[idx+1].data.length > curves[idx+1].dimension) {
+                                //tam dung stream khi no push qua nhieu vao mang.
+                                rl.pause();
+                            }
                             const arr = customSplit(line, " ");
                             for(let i = 1; i <= curve.dimension; i++){
                                 if(arr[i])
@@ -267,7 +271,12 @@ async function dlisExport(wells, exportPath){
                                     channelIdx += 1;
                                 }
                             }
-
+                            for(let i = 1; i <= dataset.curves.length; i++) {
+                                if (curves[i].rl && curves[i].data.length <= curves[i].dimension) {
+                                    //resume stream
+                                    curves[i].rl.resume();
+                                }
+                            }
                         });
                         rl.on("close", () => {
                             closedStream -= 1;
