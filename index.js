@@ -220,21 +220,22 @@ async function dlisExport(wells, exportPath){
                         dimension: 1
                     }) //for TDEP
                     for(const [idx, curve] of dataset.curves.entries()){
-                        curves.push({
-                            data: [],
-                            repcode: curve.type == "TEXT"?REP_CODE.ASCII : REP_CODE.FDOUBL,
-                            dimension: curve.dimension ? curve.dimension : 1
-                        })
                         const rl = readline.createInterface({
                             input: curve.key ? await s3.getData(curve.key) : fs.createReadStream(curve.path)
                         });
+                        curves.push({
+                            data: [],
+                            repcode: curve.type == "TEXT"?REP_CODE.ASCII : REP_CODE.FDOUBL,
+                            dimension: curve.dimension ? curve.dimension : 1,
+                            rl: rl
+                        })
                         rl.on("line", function(line) {
-                            if(line.trim().length <= 0) return;
-                            line = line.replace(/\s\s+/g, ' ');
                             if(curves[idx+1].data.length > 1000 && curves[idx+1].data.length > curves[idx+1].dimension) {
-                                //tam dung stream khi no push qua nhieu vao mang.
+                                //tam dung stream khi no push qua nhieu vao mang. 
                                 rl.pause();
                             }
+                            if(line.trim().length <= 0) return;
+                            line = line.replace(/\s\s+/g, ' ');
                             const arr = customSplit(line, " ");
                             for(let i = 1; i <= curve.dimension; i++){
                                 if(arr[i])
@@ -242,6 +243,7 @@ async function dlisExport(wells, exportPath){
                                 else 
                                     curves[idx+1].data.push(NULL_VALUE);
                             }
+
                             //curves[i+1].data.push(arr[1]);
                             if(channelIdx == 0){
                                 //start a frame
@@ -724,4 +726,6 @@ module.exports = function(_config){
     };
     return module;
 }
+
+
 
