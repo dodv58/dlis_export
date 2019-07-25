@@ -232,6 +232,7 @@ async function dlisExport(wells, exportPath){
                         rl.on("line", function(line) {
                             if(curves[idx+1].data.length > 1000 && curves[idx+1].data.length > curves[idx+1].dimension) {
                                 //tam dung stream khi no push qua nhieu vao mang. 
+                                console.log("pause==> " + (idx+1) + "\t" + curves[idx+1].data.length)
                                 rl.pause();
                             }
                             if(line.trim().length <= 0) return;
@@ -276,6 +277,7 @@ async function dlisExport(wells, exportPath){
                             for(let i = 1; i <= dataset.curves.length; i++) {
                                 if (curves[i].rl && curves[i].data.length <= curves[i].dimension) {
                                     //resume stream
+                                    console.log("pause==> + resume "+ i)
                                     curves[i].rl.resume();
                                 }
                             }
