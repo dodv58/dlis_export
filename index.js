@@ -277,7 +277,7 @@ async function dlisExport(wells, exportPath){
                             for(let i = 1; i <= dataset.curves.length; i++) {
                                 if (curves[i].rl && curves[i].data.length <= curves[i].dimension) {
                                     //resume stream
-                                    console.log("pause==> + resume "+ i)
+                                    console.log("pause==> + resume "+ i + "\t" + curves[i].data.length)
                                     curves[i].rl.resume();
                                 }
                             }
