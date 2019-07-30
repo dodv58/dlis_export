@@ -244,6 +244,8 @@ async function dlisExport(wells, exportPath){
                                 channelIdx = idx + 1;
                             }
                             while(null !== (line = curves[channelIdx].rl.read())){
+                                line = line.replace(/\s\s+/g, ' ');
+                                const arr = customSplit(line, " ");
                                 if(channelIdx == 1){
                                     //start a frame
                                     //currently, 1 vr = 1 lrs = 1 frame, will be improved in the future
@@ -257,8 +259,6 @@ async function dlisExport(wells, exportPath){
                                     const bytes = encodeIflrData(curves[0].repcode, index);
                                     lrsLen += bytes;
                                 }
-                                line = line.replace(/\s\s+/g, ' ');
-                                const arr = customSplit(line, " ");
                                 for (let i = 1; i <= curves[channelIdx].dimension; i++) {
                                     if (arr[i])
                                         bytes = encodeIflrData(curves[channelIdx].repcode, arr[i]);
