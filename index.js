@@ -232,6 +232,7 @@ async function dlisExport(wells, exportPath){
                         stream.on('end', () => {
                             closedStream -= 1;
                             item.closed = true
+                            console.log("ddoo " + curve.name + " closed " + (idx+1) + "\t remain " + closedStream)
                             if(closedStream == 0) {
                                 console.log("done " + dataset.name);
                                 resolve();
