@@ -221,7 +221,8 @@ async function dlisExport(wells, exportPath){
                         dimension: 1
                     }) //for TDEP
                     for(const [idx, curve] of dataset.curves.entries()){
-                        const stream = byline.createStream(fs.createReadStream(curve.path, { encoding: 'utf8' }));
+                        let stream = curve.key ? await s3.getData(curve.key) : fs.createReadStream(curve.path);
+                        stream = byline.createStream(stream);
                         const item = {
                             repcode: curve.type == "TEXT"?REP_CODE.ASCII : REP_CODE.FDOUBL,
                             dimension: curve.dimension ? curve.dimension : 1,
