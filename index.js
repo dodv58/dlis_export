@@ -14,7 +14,7 @@ const COMPONENT_ROLE = {
     RDSET: 5,
     RSET: 6,
     SET: 7
-    };
+};
 const VR_MAX_LEN = 32768;
 const BUFF_SIZE = 33000;
 const NULL_VALUE = -9999
@@ -106,12 +106,12 @@ async function dlisExport(wells, exportPath){
         const cTimeObj = {y:cTime.getUTCFullYear(), tz:2, m:cTime.getUTCMonth() + 1, d:cTime.getUTCDate(), h:cTime.getUTCHours(), mn:cTime.getUTCMinutes(), s:cTime.getUTCSeconds(), ms:cTime.getUTCMilliseconds()};
         let origin = 0;
         let logicalFile = 0;
-        
+
         for(const well of wells){
             logicalFile++;
             origin++;
             let FILE_ID = fillStrWithSpace("I2G-"+ well.name, 65, 1);
-            
+
             //write FHLR
             const fhlr = {
                 type: "FILE-HEADER",
@@ -129,7 +129,7 @@ async function dlisExport(wells, exportPath){
                     origin: 1,
                     copy_number: 0,
                     name: well.name,
-                    attribs: [[FILE_ID], ["I2G"], [1], [1], ["I2G"], ["I2G"], ["I2G-2019"], ["I2G-Export"], 
+                    attribs: [[FILE_ID], ["I2G"], [1], [1], ["I2G"], ["I2G"], ["I2G-2019"], ["I2G-Export"],
                         [cTimeObj], ["1"], [], [], ["I2G-" + well.name], [well.name], [], [], [], ["I2G"], [], []]
                 }]
             }
@@ -165,7 +165,7 @@ async function dlisExport(wells, exportPath){
                     origin: origin,
                     copy_number: 0,
                     name: "TDEP",
-                    attribs: [[], [], [REP_CODE.FDOUBL], [dataset.unit], 
+                    attribs: [[], [], [REP_CODE.FDOUBL], [dataset.unit],
                         [1], [], [], []]
                 })
                 for(const curve of dataset.curves){
@@ -173,7 +173,7 @@ async function dlisExport(wells, exportPath){
                         origin: origin,
                         copy_number: 0,
                         name: curve.name,
-                        attribs: [[curve.description], [], [curve.type == "TEXT"? REP_CODE.ASCII : REP_CODE.FDOUBL], [curve.unit], 
+                        attribs: [[curve.description], [], [curve.type == "TEXT"? REP_CODE.ASCII : REP_CODE.FDOUBL], [curve.unit],
                             [curve.dimension], [], [curve.dimension], []]
                     })
                 }
@@ -197,170 +197,103 @@ async function dlisExport(wells, exportPath){
                 objects: channels
             }
             encodeSet(channelSet);
-            
+
             //write frame
             const frameSet = {
                 type: "FRAME",
                 template: TEMPLATE.FRAME,
                 objects: frames
             }
-            encodeSet(frameSet); 
+            encodeSet(frameSet);
 
             //write data
             const curves = []
             async function encodeDatasetData(dataset){
                 return new Promise(async function(resolve, reject) {
-                    let closedStream = dataset.curves.length;
-                    curves.length = 0;
-                    let channelIdx = 1;
-                    let frameIdx = 1;
-                    let readable = 0;
-                    curves.push({
-                        data: [],
-                        repcode: REP_CODE.FDOUBL,
-                        dimension: 1
-                    }) //for TDEP
-                    for(const [idx, curve] of dataset.curves.entries()){
-                        let stream = curve.key ? await s3.getData(curve.key) : fs.createReadStream(curve.path);
-                        stream = byline.createStream(stream, {encoding: "utf8"});
-                        const item = {
-                            repcode: curve.type == "TEXT"?REP_CODE.ASCII : REP_CODE.FDOUBL,
-                            dimension: curve.dimension ? curve.dimension : 1,
-                            rl: stream,
-                            closed: false
-                        }
-                        curves.push(item)
-                        stream.on('end', () => {
-                            closedStream -= 1;
-                            item.closed = true
-                            console.log("ddoo " + curve.name + " closed " + (idx+1) + "\t remain " + closedStream)
-                            if(closedStream == 0) {
-                                console.log("done " + dataset.name);
-                                resolve();
+                    try {
+                        let activeStream = dataset.curves.length;
+                        curves.length = 0;
+                        let frameIdx = 1;
+                        let readable = 0;
+                        for (const [idx, curve] of dataset.curves.entries()) {
+                            let stream = curve.key ? await s3.getData(curve.key) : fs.createReadStream(curve.path);
+                            stream = byline.createStream(stream, {encoding: "utf8"}).pause();
+                            const item = {
+                                repcode: curve.type == "TEXT" ? REP_CODE.ASCII : REP_CODE.FDOUBL,
+                                dimension: curve.dimension ? curve.dimension : 1,
+                                rl: stream,
+                                closed: false
                             }
-                        })
-                    }
-                    for(const [idx, curve] of dataset.curves.entries()){
-                        curves[idx+1].rl.on('readable', function () {
-                            if(curves[channelIdx].closed){
-                                channelIdx = idx + 1;
-                            }
-                            while(null !== (line = curves[channelIdx].rl.read())){
+                            curves.push(item)
+                            stream.on('data', (line) => {
+                                stream.pause();
                                 line = line.replace(/\s\s+/g, ' ');
                                 const arr = customSplit(line, " ");
-                                if(channelIdx == 1){
+                                if (idx == 0) {
                                     //start a frame
                                     //currently, 1 vr = 1 lrs = 1 frame, will be improved in the future
-                                    encodeIflrHeader({origin: dataset.origin, copy_number: 0, name: dataset.name }, frameIdx);
+                                    encodeIflrHeader({
+                                        origin: dataset.origin,
+                                        copy_number: 0,
+                                        name: dataset.name
+                                    }, frameIdx);
                                     let index = 0;
-                                    if(dataset.step != 0){
-                                        index = parseFloat(dataset.top) + (frameIdx-1)*dataset.step;
-                                    }else {
+                                    if (dataset.step != 0) {
+                                        index = parseFloat(dataset.top) + (frameIdx - 1) * dataset.step;
+                                    } else {
                                         index = parseFloat(arr[0]);
                                     }
-                                    const bytes = encodeIflrData(curves[0].repcode, index);
+                                    const bytes = encodeIflrData(REP_CODE.FDOUBL, index);
                                     lrsLen += bytes;
                                 }
-                                for (let i = 1; i <= curves[channelIdx].dimension; i++) {
+                                for (let i = 1; i <= curve.dimension; i++) {
                                     if (arr[i])
-                                        bytes = encodeIflrData(curves[channelIdx].repcode, arr[i]);
+                                        bytes = encodeIflrData(item.repcode, arr[i]);
                                     else
-                                        bytes = encodeIflrData(curves[channelIdx].repcode, NULL_VALUE);
+                                        bytes = encodeIflrData(item.repcode, NULL_VALUE);
                                     lrsLen += bytes;
                                 }
-
-                                if (channelIdx == dataset.curves.length) {
+                                if (idx == dataset.curves.length - 1) {
                                     //end of frame
                                     writeLRSHeader(lrsIdx > 0 ? 0b01000000 : 0b00000000, 0b00000000); //lrs length
                                     vrLen += lrsLen;
                                     writeVRLen();
-                                    channelIdx = 1;
-                                    frameIdx += 1;
+                                    if(activeStream < curves.length) {
+                                        console.log("dlis export done 1 " + dataset.name);
+                                        resolve()
+                                    }
+                                    else {
+                                        frameIdx += 1;
+                                        curves[0].rl.resume();
+                                    }
                                     //console.log(buffer.buffs[buffer.bufferIdx].slice(vrStartIdx, vrStartIdx + 8))
                                 }
                                 else {
-                                    channelIdx += 1;
+                                    curves[idx + 1].rl.resume();
                                 }
-                            }
-                        })
-
+                            })
+                            stream.on('end', () => {
+                                activeStream -= 1;
+                                if(!stream.isPaused()){
+                                    stream.pause()
+                                    if(curves[idx+1])
+                                        curves[idx+1].rl.resume()
+                                }
+                                item.closed = true
+                                console.log("dlis export " + curve.name + " closed " + idx + "\t remain " + activeStream)
+                                if (activeStream == 0) {
+                                    console.log("dlis export done 2 " + dataset.name);
+                                    resolve();
+                                }
+                            })
+                        }
+                        curves[0].rl.resume();
+                        
                     }
-
-                    /*
-                    for(const [idx, curve] of dataset.curves.entries()){
-                        const rl = readline.createInterface({
-                            input: curve.key ? await s3.getData(curve.key) : fs.createReadStream(curve.path)
-                        });
-                        const stream = byline.createStream(fs.createWriteStream(curve.path));
-
-                        curves.push({
-                            data: [],
-                            repcode: curve.type == "TEXT"?REP_CODE.ASCII : REP_CODE.FDOUBL,
-                            dimension: curve.dimension ? curve.dimension : 1,
-                            rl: stream
-                        })
-                        rl.on("line", function(line) {
-                            if(curves[idx+1].data.length > 1000 && curves[idx+1].data.length > curves[idx+1].dimension) {
-                                //tam dung stream khi no push qua nhieu vao mang. 
-                                console.log("pause==> " + (idx+1) + "\t" + curves[idx+1].data.length)
-                                rl.pause();
-                            }
-                            if(line.trim().length <= 0) return;
-                            line = line.replace(/\s\s+/g, ' ');
-                            const arr = customSplit(line, " ");
-                            for(let i = 1; i <= curve.dimension; i++){
-                                if(arr[i])
-                                    curves[idx+1].data.push(arr[i]);
-                                else 
-                                    curves[idx+1].data.push(NULL_VALUE);
-                            }
-                            
-                            //curves[i+1].data.push(arr[1]);
-                            if(channelIdx == 0){
-                                //start a frame
-                                //currently, 1 vr = 1 lrs = 1 frame, will be improved in the future
-                                encodeIflrHeader({origin: dataset.origin, copy_number: 0, name: dataset.name }, frameIdx);
-                                if(dataset.step != 0){
-                                    curves[0].data[0] = parseFloat(dataset.top) + (frameIdx-1)*dataset.step;
-                                }else {
-                                    curves[0].data[0] = parseFloat(arr[0]);
-                                }
-                            }
-                            while(curves[channelIdx].data.length > 0){
-                                for(let i = 0; i < curves[channelIdx].dimension; i++){
-                                    const bytes = encodeIflrData(curves[channelIdx].repcode, curves[channelIdx].data.shift());
-                                    lrsLen += bytes;
-                                }
-                                if(channelIdx == dataset.curves.length){
-                                    //end of frame
-                                    writeLRSHeader(lrsIdx > 0? 0b01000000: 0b00000000, 0b00000000); //lrs length
-                                    vrLen += lrsLen;
-                                    writeVRLen(); 
-                                    channelIdx = 0;
-                                    frameIdx += 1;
-                                    //console.log(buffer.buffs[buffer.bufferIdx].slice(vrStartIdx, vrStartIdx + 8))
-                                }
-                                else {
-                                    channelIdx += 1;
-                                }
-                            }
-                            for(let i = 1; i <= dataset.curves.length; i++) {
-                                if (curves[i].rl && curves[i].data.length <= curves[i].dimension) {
-                                    //resume stream
-                                    console.log("pause==> + resume "+ i + "\t" + curves[i].data.length)
-                                    curves[i].rl.resume();
-                                }
-                            }
-                        });
-                        rl.on("close", () => {
-                            closedStream -= 1;
-                            if(closedStream == 0) {
-                                console.log("done " + dataset.name);
-                                resolve();
-                            }
-                        })
+                    catch (err){
+                        console.log(err)
+                        throw err;
                     }
-                    */
 
                 })
             }
@@ -422,7 +355,7 @@ async function dlisExport(wells, exportPath){
                 if(bytes < 0){
                     writeLRSHeader(lrsIdx == 0 ? 0b00100000 : 0b01100000); //lrs length
                     vrLen += lrsLen;
-                    writeVRLen(); 
+                    writeVRLen();
                     lrsIdx += 1;
                     createVR();
                     createLRS(lrsType);
@@ -452,7 +385,7 @@ async function dlisExport(wells, exportPath){
                 createLRS(lrsType);
                 lrsIdx = 0;
                 let compLen = 0;
-                if(set.name){ 
+                if(set.name){
                     compLen = encodeComponent(COMPONENT_ROLE.SET, 0b11000, set.type, set.name);
                 }else {
                     compLen = encodeComponent(COMPONENT_ROLE.SET, 0b10000, set.type);
@@ -514,7 +447,7 @@ async function dlisExport(wells, exportPath){
                 }
                 writeLRSHeader(lrsIdx == 0? 0b10000000 : 0b11000000); //lrs length
                 vrLen += lrsLen;
-                writeVRLen(); 
+                writeVRLen();
             }
             catch (err){
                 err.message = "encodeSet: " + err.message;
@@ -572,7 +505,7 @@ async function dlisExport(wells, exportPath){
             try{
                 //console.log("encodeComponent " + buffer.writeIdx + " header " + (role << 5 | format));
                 const sBufferIdx = buffer.bufferIdx;
-                const sWriteIdx = buffer.writeIdx; 
+                const sWriteIdx = buffer.writeIdx;
                 writeToBuffer([role << 5 | format]); //write component header
                 let len = 1;
                 buffer.vrRemain -= 1;
@@ -584,7 +517,7 @@ async function dlisExport(wells, exportPath){
                         buffer.writeIdx = sWriteIdx;
                         writeLRSHeader(lrsIdx == 0 ? 0b10100000 : 0b11100000); //lrs length
                         vrLen += lrsLen;
-                        writeVRLen(); 
+                        writeVRLen();
                         lrsIdx += 1;
                         createVR();
                         createLRS(lrsType);
@@ -680,7 +613,7 @@ async function dlisExport(wells, exportPath){
         }
 
         function createVR(){
-            buffer.vrRemain = VR_MAX_LEN; 
+            buffer.vrRemain = VR_MAX_LEN;
             vrStartIdx = buffer.writeIdx;
             writeToBuffer([0x00, 0x00, 0xFF, 0x01]); //vr header
             vrLen = 4;
