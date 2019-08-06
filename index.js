@@ -291,7 +291,7 @@ async function dlisExport(wells, exportPath){
                         
                     }
                     catch (err){
-                        console.log("dlis export err: "err)
+                        console.log("dlis export err: " + err);
                         throw err;
                     }
 
