@@ -285,7 +285,7 @@ function encodeUlong(buffs, buffIdx, writeIdx, val){
 }
 function encodeAscii(buffs, buffIdx, writeIdx, val){
     if(val == null){
-        val == "";
+        val = "";
     }
     val = val.toString();
     let len = encodeUvari(buffs, buffIdx, writeIdx, val.length);
