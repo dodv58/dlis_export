@@ -451,6 +451,7 @@ async function dlisExport(wells, exportPath){
             }
             catch (err){
                 err.message = "encodeSet: " + err.message;
+                console.log("encodeSer err: " + JSON.stringify(set));
                 throw err;
             }
         }
@@ -720,6 +721,7 @@ async function dlisExport(wells, exportPath){
     }
     catch(err){
         console.log("dlis export err: "+ err);
+        return Promise.reject(err);
     }
 }
 

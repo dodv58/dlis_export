@@ -110,6 +110,7 @@ function encode(buffer, code, value){
     }
     catch(err){
         err.message = "encode: " + err.message
+        console.log("encode " + code + "\t" + JSON.stringify(value)+"\t"+buffer.bufferIdx+"\t"+buffer.writeIdx);
         throw err;
     }
 }
