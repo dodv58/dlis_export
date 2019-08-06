@@ -115,6 +115,10 @@ function encode(buffer, code, value){
     }
 }
 function encodeIdent(buffs, buffIdx, writeIdx, str){
+    if(str == null){
+        str = "";
+    }
+    str = str.toString();
     if(str.length > 255) {
         console.log("encodeIdent string is too large!!!");
         return;
@@ -280,6 +284,9 @@ function encodeUlong(buffs, buffIdx, writeIdx, val){
     return 4;
 }
 function encodeAscii(buffs, buffIdx, writeIdx, val){
+    if(val == null){
+        val == "";
+    }
     val = val.toString();
     let len = encodeUvari(buffs, buffIdx, writeIdx, val.length);
     if(len == -1) return -1;
