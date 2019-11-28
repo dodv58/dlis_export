@@ -66,7 +66,7 @@ function customSplit(str, delimiter){
     return words;
 }
 
-async function dlisExport(wells, exportPath){
+async function dlisExport(wells, exportPath, curveData){
     try{
         if(!exportPath){
             exportPath = "./export.dlis";
@@ -216,7 +216,7 @@ async function dlisExport(wells, exportPath){
                         let frameIdx = 1;
                         let readable = 0;
                         for (const [idx, curve] of dataset.curves.entries()) {
-                            let stream = curve.key ? await s3.getData(curve.key) : fs.createReadStream(curve.path);
+                            let stream = await curveData(curve);
                             stream = byline.createStream(stream, {encoding: "utf8"}).pause();
                             const item = {
                                 repcode: curve.type == "TEXT" ? REP_CODE.ASCII : REP_CODE.FDOUBL,
