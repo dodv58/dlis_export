@@ -116,7 +116,7 @@ async function dlisExport(wells, exportPath, curveData){
             const fhlr = {
                 type: "FILE-HEADER",
                 template: [{label: "SEQUENCE-NUMBER", repcode: REP_CODE.ASCII}, {label: "ID", repcode: REP_CODE.ASCII}],
-                objects: [{origin: origin, copy_number: 0, name: "1", attribs: [[fillStrWithSpace(logicalFile, 10, 0)], [FILE_ID]]}]
+                objects: [{origin: origin, copy_number: 0, name: "1", attribs: [[fillStrWithSpace(logicalFile, 10, 0)], []]}]
             }
             encodeSet(fhlr);
 
